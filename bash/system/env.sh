@@ -38,6 +38,7 @@ permissions() {
   # Set proper permissions for bash scripts
   chmod +x "$BASH_DIR/server.sh"
   chmod +x "$BASH_DIR/system/"*.sh
+  sudo chown -R ubuntu:ubuntu "$LOG_DIR"
   log "Permissions set for bash scripts"
 }
 
