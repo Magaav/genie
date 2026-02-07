@@ -1,0 +1,27 @@
+2026-02-07 11:12:13 - Timezone set to America/Sao_Paulo
+2026-02-07 11:13:42 - Added ubuntu to docker group
+2026-02-07 11:13:46 - Docker installation completed
+2026-02-07 11:13:53 - Installed xclip
+2026-02-07 11:40:41 - Timezone set to America/Sao_Paulo
+2026-02-07 11:41:16 - Added ubuntu to docker group
+2026-02-07 11:41:18 - Docker installation completed
+2026-02-07 11:41:18 - Git configured with name: openclaw.ohana and email: vic.scar@gmail.com
+2026-02-07 11:41:18 - SSH key generated at /root/.ssh/id_ed25519_openclaw
+2026-02-07 11:41:18 - SSH key added to ssh-agent
+2026-02-07 11:41:18 - SSH config updated for GitHub
+2026-02-07 11:51:38 - Timezone set to America/Sao_Paulo
+2026-02-07 11:51:50 - Added ubuntu to docker group
+2026-02-07 11:51:52 - Docker installation completed
+2026-02-07 11:51:52 - Git configured with name: openclaw.ohana and email: vic.scar@gmail.com
+2026-02-07 11:51:52 - SSH key generated at /home/ubuntu/.ssh/id_ed25519
+2026-02-07 11:51:52 - SSH key added to ssh-agent
+2026-02-07 11:51:52 - SSH config updated for GitHub
+2026-02-07 11:51:52 - GitHub setup completed - SSH key ready at /home/ubuntu/.ssh/id_ed25519
+2026-02-07 12:01:34 - Timezone set to America/Sao_Paulo
+2026-02-07 12:03:27 - Added ubuntu to docker group
+2026-02-07 12:03:28 - Docker Compose installed: Docker Compose version v2.24.5
+2026-02-07 12:03:31 - Docker installation completed successfully
+2026-02-07 12:03:31 - Git configured with name: openclaw.ohana and email: vic.scar@gmail.com
+2026-02-07 12:03:31 - SSH key already exists, skipping generation
+2026-02-07 12:03:31 - SSH key added to ssh-agent
+2026-02-07 12:03:31 - GitHub setup completed - SSH key ready at /home/ubuntu/.ssh/id_ed25519
