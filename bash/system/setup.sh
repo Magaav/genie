@@ -119,7 +119,6 @@ set_github(){
   git config --global user.email "$INSTANCE_EMAIL"
   git config --global alias.ac '!git add . && git commit -m'
   # Add Git alias for quick commits
-  git config --global alias.ac '!git add . && git commit -m'
   log "Git configured with name: $INSTANCE_NAME and email: $INSTANCE_EMAIL"
   echo "Git configured successfully!"
   echo "  - User Name: $INSTANCE_NAME"
@@ -209,8 +208,14 @@ EOF
   echo "3. Title: '$INSTANCE_NAME'"
   echo "4. Paste the key and click 'Add SSH key'"
   echo ""
-  echo "Then clone your repository with:"
-  echo "  git clone git@github.com:YOUR_USERNAME/REPO_NAME.git"
+  echo "Then initialize and push your repository with:"
+  echo "  cd /local"
+  echo "  git init"
+  echo "  git config --global --add safe.directory /local"
+  echo "  git add ."
+  echo "  git commit -m 'Initial commit'"
+  echo "  git remote add origin git@github.com:Magaav/openclaw.git"
+  echo "  git push -u origin master"
   echo ""
   echo "SSH key location: $SSH_KEY_PATH"
   echo "SSH key owner: $ACTUAL_USER"
