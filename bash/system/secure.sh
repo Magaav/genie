@@ -14,7 +14,7 @@ echo "Starting security setup..."
 echo "Configuring SSH for key-based auth and disabling root login..."
 sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
 sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
-sudo systemctl restart sshd
+sudo systemctl restart ssh
 
 # 2. Install and configure UFW to allow only SSH
 echo "Installing and configuring UFW..."
