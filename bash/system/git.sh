@@ -112,6 +112,7 @@ EOF
 
 config_git(){
   # Configure Git global settings
+  echo "Should be run without sudo to set config for the actual user"
   echo "Configuring Git with instance credentials..."
   git config --global user.name "$INSTANCE_NAME"
   git config --global user.email "$INSTANCE_EMAIL"
