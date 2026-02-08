@@ -3,12 +3,13 @@
 # Get Bash Variables
 source "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/env.sh"
 
+# Validate required environment variables
+if [ -z "$INSTANCE_NAME" ] || [ -z "$INSTANCE_EMAIL" ]; then
+  echo "ERROR: INSTANCE_NAME or INSTANCE_EMAIL not set in env.sh"
+  exit 1
+fi
+
 set_git(){
-  # Validate required environment variables
-  if [ -z "$INSTANCE_NAME" ] || [ -z "$INSTANCE_EMAIL" ]; then
-    echo "ERROR: INSTANCE_NAME or INSTANCE_EMAIL not set in env.sh"
-    exit 1
-  fi
   # Install required packages
   require "git"
   # Determine the actual user and home directory
@@ -116,7 +117,7 @@ config_git(){
   echo "Configuring Git with instance credentials..."
   git config --global user.name "$INSTANCE_NAME"
   git config --global user.email "$INSTANCE_EMAIL"
-  git config --global alias.ac '!git add . && git commit -m'
+  git config --global alias.ac '!git add . && git commit -m && git push --set-upstream origin master'
   echo "Git configured with name: $INSTANCE_NAME and email: $INSTANCE_EMAIL"
 }
 
