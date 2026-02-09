@@ -4,6 +4,7 @@
 source "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/env.sh"
 # Check required packages
 require "nano"
+require "net-tools"
 
 set_docker(){
   # Install docker
