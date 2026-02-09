@@ -5,6 +5,9 @@ source "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/env.sh"
 # Check required packages
 require "nano"
 require "net-tools"
+require "cron"
+sudo systemctl enable cron
+sudo systemctl start cron
 
 set_docker(){
   # Install docker
@@ -15,10 +18,5 @@ set_docker(){
   sudo systemctl enable docker
   # Add current user to the docker group to run docker without sudo
   sudo usermod -aG docker $USER
+  sudo reboot
 }
-
-
-
-
-
-sudo reboot

@@ -7,3 +7,4 @@ sudo docker compose restart openclaw-gateway
 sudo docker compose exec openclaw-gateway node dist/index.js configure --section model
 sudo docker compose exec openclaw-gateway node dist/index.js devices list
 sudo docker compose exec openclaw-gateway node dist/index.js devices approve $DEVICE_ID
+docker compose exec openclaw-gateway ls -la /home/node/.openclaw_backup/
