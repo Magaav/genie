@@ -6,13 +6,21 @@ set -e  # Exit on any error
 ROOT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../.."
 INSTANCE_NAME="openclaw.ohana"
 INSTANCE_EMAIL="vic.scar@gmail.com"
-LOG_DIR="$ROOT_DIR/log"
+LOG_DIR="${OPENCLAW_LOG_DIR:-/var/log/openclaw}"
 LOG_BASH_DIR="$LOG_DIR/system/bash"
 BASH_DIR="$ROOT_DIR/bash"
 NOW=$(date '+%Y-%m-%d_%H-%M-%S')
 
-# Ensure the LOG_BASH_DIR directory exists
-mkdir -p "$LOG_BASH_DIR"
+run_as_root(){
+  if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+# Ensure the log directory exists outside the repository by default.
+run_as_root mkdir -p "$LOG_BASH_DIR"
 
 # Log function
 log(){
@@ -28,14 +36,6 @@ log(){
     echo "$log_line" >> "$log_path"
   else
     printf '%s\n' "$log_line" | run_as_root tee -a "$log_path" >/dev/null
-  fi
-}
-
-run_as_root(){
-  if [ "${EUID:-$(id -u)}" -eq 0 ]; then
-    "$@"
-  else
-    sudo "$@"
   fi
 }
 
