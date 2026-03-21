@@ -37,6 +37,10 @@ restart_ssh_service() {
   fi
 }
 
+ensure_sshd_runtime_dir() {
+  install -d -m 0755 /run/sshd
+}
+
 wait_for_fail2ban() {
   local attempts=10
   local delay_seconds=1
@@ -57,6 +61,7 @@ echo "Configuring SSH for key-based auth and disabling root login..."
 cp /etc/ssh/sshd_config "/etc/ssh/sshd_config.bak.${NOW}"
 set_sshd_option "PasswordAuthentication" "no"
 set_sshd_option "PermitRootLogin" "no"
+ensure_sshd_runtime_dir
 sshd -t
 restart_ssh_service
 

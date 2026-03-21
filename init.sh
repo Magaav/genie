@@ -91,14 +91,34 @@ EOF
 
 sync_repo() {
   if [ -d "${REPO_DIR}/.git" ]; then
+    chown -R "${BOOTSTRAP_USER}:${BOOTSTRAP_USER}" "$REPO_DIR"
     log "Updating existing repository at ${REPO_DIR}"
     sudo -u "$BOOTSTRAP_USER" git -C "$REPO_DIR" pull --ff-only origin master
   else
-    if [ "$(find "$REPO_DIR" -mindepth 1 -maxdepth 1 | wc -l)" -gt 0 ]; then
-      fail "${REPO_DIR} is not empty and is not a git repository"
+    local bootstrap_script="${REPO_DIR}/$(basename "$0")"
+    local temp_parent_dir
+    local temp_clone_dir
+
+    temp_parent_dir="$(mktemp -d)"
+    temp_clone_dir="${temp_parent_dir}/repo"
+    chown "${BOOTSTRAP_USER}:${BOOTSTRAP_USER}" "$temp_parent_dir"
+    log "Cloning repository into temporary directory ${temp_clone_dir}"
+    sudo -u "$BOOTSTRAP_USER" git clone "$REPO_SSH_URL" "$temp_clone_dir"
+
+    if find "$REPO_DIR" -mindepth 1 -maxdepth 1 ! -samefile "$bootstrap_script" | grep -q .; then
+      rm -rf "$temp_parent_dir"
+      fail "${REPO_DIR} contains files other than $(basename "$bootstrap_script") and is not a git repository"
     fi
-    log "Cloning repository into ${REPO_DIR}"
-    sudo -u "$BOOTSTRAP_USER" git clone "$REPO_SSH_URL" "$REPO_DIR"
+
+    if [ -f "$bootstrap_script" ]; then
+      rm -f "$bootstrap_script"
+    fi
+
+    log "Moving repository into ${REPO_DIR}"
+    find "$temp_clone_dir" -mindepth 1 -maxdepth 1 -exec mv {} "$REPO_DIR"/ \;
+    chown -R "${BOOTSTRAP_USER}:${BOOTSTRAP_USER}" "$REPO_DIR"
+    rmdir "$temp_clone_dir"
+    rmdir "$temp_parent_dir"
   fi
 }
 
