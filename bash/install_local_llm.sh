@@ -29,7 +29,9 @@ QWEN_MODEL=$QWEN_MODEL
 EMBED_MODEL=$EMBED_MODEL
 EOF
 
-  run_as_root chmod 640 "$LOCAL_LLM_ENV_FILE"
+  run_as_root chown -R "$ACTUAL_USER:$ACTUAL_USER" "$LOCAL_LLM_DIR"
+  run_as_root chmod 755 "$LOCAL_LLM_DIR"
+  run_as_root chmod 644 "$LOCAL_LLM_ENV_FILE"
 }
 
 pull_models() {
@@ -40,12 +42,16 @@ pull_models() {
 install_aliases() {
   local bashrc_file="${ACTUAL_HOME}/.bashrc"
 
-  if ! grep -Fq "alias llm-chat='ollama run ${QWEN_MODEL}'" "$bashrc_file" 2>/dev/null; then
-    echo "alias llm-chat='ollama run ${QWEN_MODEL}'" >> "$bashrc_file"
+  if ! grep -Fq "alias llm-local='/local/bash/local_llm.sh'" "$bashrc_file" 2>/dev/null; then
+    echo "alias llm-local='/local/bash/local_llm.sh'" >> "$bashrc_file"
   fi
 
-  if ! grep -Fq "alias llm-embed='ollama run ${EMBED_MODEL}'" "$bashrc_file" 2>/dev/null; then
-    echo "alias llm-embed='ollama run ${EMBED_MODEL}'" >> "$bashrc_file"
+  if ! grep -Fq "alias llm-chat='/local/bash/local_llm.sh raw'" "$bashrc_file" 2>/dev/null; then
+    echo "alias llm-chat='/local/bash/local_llm.sh raw'" >> "$bashrc_file"
+  fi
+
+  if ! grep -Fq "alias llm-embed='/local/bash/local_llm.sh embed'" "$bashrc_file" 2>/dev/null; then
+    echo "alias llm-embed='/local/bash/local_llm.sh embed'" >> "$bashrc_file"
   fi
 }
 
@@ -62,7 +68,7 @@ main() {
   echo "Worker model: ${QWEN_MODEL}"
   echo "Embedding model: ${EMBED_MODEL}"
   echo "Config file: ${LOCAL_LLM_ENV_FILE}"
-  echo "Reload your shell to use the llm-chat and llm-embed aliases."
+  echo "Reload your shell to use the llm-local, llm-chat, and llm-embed aliases."
 }
 
 main "$@"
