@@ -14,6 +14,7 @@ DAILY_PREFIX="freewiller-daily"
 KEEP_HOURLY="${KEEP_HOURLY:-3}"
 KEEP_DAILY="${KEEP_DAILY:-1}"
 LOCAL_MEMORY_PY="$(realpath "$ROOT_DIR/bash/local_memory.py")"
+REPO_ENV_FILE="${REPO_ENV_FILE:-$ROOT_DIR/.env}"
 
 if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   OWNER_USER="${FREEWILLER_OWNER:-${SUDO_USER:-ubuntu}}"
@@ -57,6 +58,10 @@ build_snapshot_dir() {
     cp "$STATE_DIR/freewiller-gateway.env" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/freewiller-gateway.env"
   fi
 
+  if [ -f "$REPO_ENV_FILE" ]; then
+    cp "$REPO_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/repo.env"
+  fi
+
   if [ -f "$STATE_DIR/memory/entries.jsonl" ]; then
     LOCAL_LLM_DIR="$STATE_DIR" python3 "$LOCAL_MEMORY_PY" export --compact --output "$compact_memory_path" >/dev/null
   fi
@@ -65,6 +70,7 @@ build_snapshot_dir() {
 {
   "created_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
   "state_dir": "$STATE_DIR",
+  "repo_env_present": $([ -f "$REPO_ENV_FILE" ] && echo true || echo false),
   "memory_entries": $(wc -l < "$STATE_DIR/memory/entries.jsonl" 2>/dev/null || echo 0),
   "memory_format": "compact-jsonl",
   "worker_model": "$(grep -E '^QWEN_MODEL=' "$STATE_DIR/local-llm.env" 2>/dev/null | cut -d= -f2- || echo unknown)",
@@ -170,6 +176,11 @@ restore_backup() {
 
   if [ -f "$snapshot_dir/freewiller-gateway.env" ]; then
     run_as_root install -m 600 "$snapshot_dir/freewiller-gateway.env" "$STATE_DIR/freewiller-gateway.env"
+  fi
+
+  if [ -f "$snapshot_dir/repo.env" ]; then
+    run_as_root install -m 600 "$snapshot_dir/repo.env" "$REPO_ENV_FILE"
+    run_as_root chown "$OWNER_USER:$OWNER_GROUP" "$REPO_ENV_FILE"
   fi
 
   if [ -f "$compact_memory_path" ]; then

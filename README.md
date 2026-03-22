@@ -36,6 +36,8 @@ Runtime state is stored under `/local`, but outside Git tracking:
 
 These paths live under `/local` so you can inspect and evolve the running node from the same workspace, but they are still ignored by Git.
 
+The repo-local secret file `/local/.env` is also ignored by Git and excluded from the Docker build context. Backups include it as `repo.env` so local bot tokens and similar bootstrap secrets can be restored onto a respawned node.
+
 ## Requirements
 
 - a brand new Ubuntu VM
@@ -211,12 +213,13 @@ Retention is intentionally small:
 
 Each archive contains a compact recovery bundle:
 
+- `repo.env` from `/local/.env` if present
 - `local-llm.env`
 - `freewiller-gateway.env` if present
 - compact memory export with summaries, facts, TODOs, and constraints
 - `manifest.json`
 
-On restore, embeddings are rebuilt locally from the compact memory export so a respawn can recover its prior memory state without carrying the full raw runtime tree.
+On restore, embeddings are rebuilt locally from the compact memory export so a respawn can recover its prior memory state without carrying the full raw runtime tree. If `/local/.env` existed when the backup was made, it is restored too.
 
 Manual commands:
 
