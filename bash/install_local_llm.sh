@@ -116,6 +116,14 @@ install_aliases() {
     echo "alias llm-memory='python3 /local/bash/local_memory.py'" >> "$bashrc_file"
   fi
 
+  if ! grep -Fq "alias llm-ingest='python3 /local/bash/local_memory.py ingest'" "$bashrc_file" 2>/dev/null; then
+    echo "alias llm-ingest='python3 /local/bash/local_memory.py ingest'" >> "$bashrc_file"
+  fi
+
+  if ! grep -Fq "alias llm-memory-stats='python3 /local/bash/local_memory.py stats'" "$bashrc_file" 2>/dev/null; then
+    echo "alias llm-memory-stats='python3 /local/bash/local_memory.py stats'" >> "$bashrc_file"
+  fi
+
   if ! grep -Fq "alias llm-agent='python3 /local/bash/local_agent.py'" "$bashrc_file" 2>/dev/null; then
     echo "alias llm-agent='python3 /local/bash/local_agent.py'" >> "$bashrc_file"
   fi
@@ -149,7 +157,7 @@ main() {
   echo "Summarize timeout: ${SUMMARIZE_TIMEOUT_SECONDS}s"
   echo "Extract timeout: ${EXTRACT_TIMEOUT_SECONDS}s"
   echo "Raw timeout: ${RAW_TIMEOUT_SECONDS}s"
-  echo "Reload your shell to use the llm-local, llm-chat, llm-embed, llm-memory, llm-agent, llm-dispatch, and freewiller-backup aliases."
+  echo "Reload your shell to use the llm-local, llm-chat, llm-embed, llm-memory, llm-ingest, llm-memory-stats, llm-agent, llm-dispatch, and freewiller-backup aliases."
 }
 
 main "$@"

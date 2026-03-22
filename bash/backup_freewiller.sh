@@ -47,6 +47,7 @@ require_state() {
 build_snapshot_dir() {
   local snapshot_dir="$1"
   local compact_memory_path="$snapshot_dir/$SNAPSHOT_ROOT_NAME/memory/entries.compact.jsonl"
+  local journal_path="$snapshot_dir/$SNAPSHOT_ROOT_NAME/memory/journal.jsonl"
 
   mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/memory"
 
@@ -62,6 +63,10 @@ build_snapshot_dir() {
     cp "$REPO_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/repo.env"
   fi
 
+  if [ -f "$STATE_DIR/memory/journal.jsonl" ]; then
+    cp "$STATE_DIR/memory/journal.jsonl" "$journal_path"
+  fi
+
   if [ -f "$STATE_DIR/memory/entries.jsonl" ]; then
     LOCAL_LLM_DIR="$STATE_DIR" python3 "$LOCAL_MEMORY_PY" export --compact --output "$compact_memory_path" >/dev/null
   fi
@@ -72,7 +77,8 @@ build_snapshot_dir() {
   "state_dir": "$STATE_DIR",
   "repo_env_present": $([ -f "$REPO_ENV_FILE" ] && echo true || echo false),
   "memory_entries": $(wc -l < "$STATE_DIR/memory/entries.jsonl" 2>/dev/null || echo 0),
-  "memory_format": "compact-jsonl",
+  "journal_events": $(wc -l < "$STATE_DIR/memory/journal.jsonl" 2>/dev/null || echo 0),
+  "memory_format": "hybrid-sqlite-compact-jsonl",
   "worker_model": "$(grep -E '^QWEN_MODEL=' "$STATE_DIR/local-llm.env" 2>/dev/null | cut -d= -f2- || echo unknown)",
   "embed_model": "$(grep -E '^EMBED_MODEL=' "$STATE_DIR/local-llm.env" 2>/dev/null | cut -d= -f2- || echo unknown)"
 }
@@ -140,6 +146,7 @@ restore_backup() {
   local temp_dir
   local snapshot_dir
   local compact_memory_path
+  local journal_memory_path
   local legacy_memory_path
 
   if [ ! -f "$backup_path" ]; then
@@ -162,6 +169,7 @@ restore_backup() {
   tar -xzf "$backup_path" -C "$temp_dir"
   snapshot_dir="$temp_dir/$SNAPSHOT_ROOT_NAME"
   compact_memory_path="$snapshot_dir/memory/entries.compact.jsonl"
+  journal_memory_path="$snapshot_dir/memory/journal.jsonl"
   legacy_memory_path="$snapshot_dir/memory/entries.jsonl"
 
   if [ ! -d "$snapshot_dir" ]; then
@@ -183,10 +191,14 @@ restore_backup() {
     run_as_root chown "$OWNER_USER:$OWNER_GROUP" "$REPO_ENV_FILE"
   fi
 
+  if [ -f "$journal_memory_path" ]; then
+    run_as_root install -m 644 "$journal_memory_path" "$STATE_DIR/memory/journal.jsonl"
+  fi
+
   if [ -f "$compact_memory_path" ]; then
     LOCAL_LLM_DIR="$STATE_DIR" python3 "$LOCAL_MEMORY_PY" import --input "$compact_memory_path" --replace >/dev/null
   elif [ -f "$legacy_memory_path" ]; then
-    run_as_root install -m 644 "$legacy_memory_path" "$STATE_DIR/memory/entries.jsonl"
+    LOCAL_LLM_DIR="$STATE_DIR" python3 "$LOCAL_MEMORY_PY" import --input "$legacy_memory_path" --replace >/dev/null
   fi
 
   run_as_root chown -R "$OWNER_USER:$OWNER_GROUP" "$STATE_DIR"

@@ -5,7 +5,7 @@ Freewiller is a bootstrapable local orchestration node for:
 - host hardening
 - Docker and Ollama setup
 - a small local LLM worker
-- local memory and retrieval
+- shared local memory and retrieval
 - a containerized local-agent HTTP service
 
 This repo is meant to be spawned onto a brand new Ubuntu VM and rebuilt from Git.
@@ -37,6 +37,18 @@ Runtime state is stored under `/local`, but outside Git tracking:
 These paths live under `/local` so you can inspect and evolve the running node from the same workspace, but they are still ignored by Git.
 
 The repo-local secret file `/local/.env` is also ignored by Git and excluded from the Docker build context. Backups include it as `repo.env` so local bot tokens and similar bootstrap secrets can be restored onto a respawned node.
+
+The shared memory layer is hybrid and compact:
+
+- append-only event journal: `/local/state/freewiller/memory/journal.jsonl`
+- SQLite semantic store: `/local/state/freewiller/memory/memory.sqlite3`
+- compatibility export for inspection: `/local/state/freewiller/memory/entries.jsonl`
+
+Retrieval uses:
+
+- local embeddings from `nomic-embed-text`
+- normalized vector similarity
+- FTS5 lexical bonus inside SQLite
 
 ## Requirements
 
@@ -107,6 +119,7 @@ docker ps
 ollama list
 curl -s http://127.0.0.1:18790/health
 curl -s http://127.0.0.1:18790/policy
+curl -s http://127.0.0.1:18790/memory/stats
 bash /local/bash/backup_freewiller.sh list
 ```
 
@@ -216,8 +229,48 @@ Each archive contains a compact recovery bundle:
 - `repo.env` from `/local/.env` if present
 - `local-llm.env`
 - `freewiller-gateway.env` if present
+- `journal.jsonl`
 - compact memory export with summaries, facts, TODOs, and constraints
 - `manifest.json`
+
+## Shared Memory API
+
+Any endpoint that wants continuity should write to the shared memory API instead of keeping its own private state.
+
+Current local-agent memory endpoints:
+
+- `GET /memory/stats`
+- `POST /memory/ingest`
+- `POST /memory/search`
+- `POST /memory/context`
+
+Example ingest:
+
+```bash
+curl -s -X POST http://127.0.0.1:18790/memory/ingest \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "channel": "telegram",
+    "session_id": "dm-8286257781",
+    "role": "user",
+    "user_id": "8286257781",
+    "source": "telegram",
+    "kind": "conversation",
+    "tags": ["telegram", "dm"],
+    "text": "Keep a single shared memory substrate across endpoints."
+  }'
+```
+
+Example hybrid retrieval:
+
+```bash
+curl -s -X POST http://127.0.0.1:18790/memory/context \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query": "single shared memory substrate",
+    "limit": 3
+  }'
+```
 
 On restore, embeddings are rebuilt locally from the compact memory export so a respawn can recover its prior memory state without carrying the full raw runtime tree. If `/local/.env` existed when the backup was made, it is restored too.
 

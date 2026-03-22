@@ -25,8 +25,9 @@ Freewiller uses a guarded local utility layer before remote escalation.
   - local extraction
   - local embeddings passthrough
 - `bash/local_memory.py`
-  - persistent memory store
-  - embedding-backed retrieval
+  - canonical memory journal
+  - SQLite-backed semantic memory store
+  - hybrid vector + lexical retrieval
   - context assembly for remote prompts
 - `bash/local_agent.py`
   - orchestration entrypoint
@@ -39,6 +40,10 @@ Freewiller uses a guarded local utility layer before remote escalation.
   - HTTP service wrapper
   - `GET /health`
   - `GET /policy`
+  - `GET /memory/stats`
+  - `POST /memory/ingest`
+  - `POST /memory/search`
+  - `POST /memory/context`
   - `POST /orchestrate`
   - `POST /dispatch`
 
@@ -48,7 +53,9 @@ Runtime state lives under `/local`, but outside Git tracking:
 
 - config: `/local/state/freewiller/local-llm.env`
 - gateway config: `/local/state/freewiller/freewiller-gateway.env`
-- memory db: `/local/state/freewiller/memory/entries.jsonl`
+- memory journal: `/local/state/freewiller/memory/journal.jsonl`
+- semantic db: `/local/state/freewiller/memory/memory.sqlite3`
+- compatibility export: `/local/state/freewiller/memory/entries.jsonl`
 - remote packages: `/local/state/freewiller/packages/`
 - gateway responses: `/local/state/freewiller/responses/`
 - backup root: `/local/backups/`
@@ -58,21 +65,42 @@ Container assets live in the repo:
 - compose: `/local/docker-compose.local-agent.yml`
 - image build: `/local/docker/local-agent/Dockerfile`
 
-Each memory entry stores:
+The semantic store keeps:
 
 - `id`
 - `created_at`
+- `ingested_at`
 - `kind`
 - `source`
+- `channel`
+- `session_id`
+- `role`
+- `user_id`
 - `tags`
 - `summary`
 - `text`
 - `facts`
 - `todo`
 - `constraints`
-- `embedding`
+- `metadata`
+- normalized embedding vector in compact binary form
 
-Backups keep a compact recovery export that strips embeddings and raw text down to:
+The journal keeps append-only raw events with:
+
+- `id`
+- `created_at`
+- `channel`
+- `session_id`
+- `role`
+- `user_id`
+- `kind`
+- `source`
+- `tags`
+- `text`
+- `metadata`
+- `derived_entry_id`
+
+Backups keep compact recovery data, plus the journal:
 
 - `id`
 - `created_at`
@@ -83,6 +111,8 @@ Backups keep a compact recovery export that strips embeddings and raw text down 
 - `facts`
 - `todo`
 - `constraints`
+- `metadata`
+- `journal.jsonl`
 
 ## Task Flow
 
@@ -95,30 +125,34 @@ Backups keep a compact recovery export that strips embeddings and raw text down 
    - cleanup
    - formatting
    - retrieval preparation
-5. Store useful outputs with:
-   - `python3 /local/bash/local_memory.py add ...`
-6. Before remote escalation, assemble relevant context with:
+5. Any endpoint that wants continuity should write its event to:
+   - `POST /memory/ingest`
+   - or `python3 /local/bash/local_memory.py ingest ...`
+6. The semantic store derives summary, facts, TODOs, constraints, and embeddings from that event.
+7. Before remote escalation, assemble relevant context with:
    - `python3 /local/bash/local_memory.py context --query ...`
-7. Use `python3 /local/bash/local_agent.py orchestrate ...` to package:
+8. Use `python3 /local/bash/local_agent.py orchestrate ...` to package:
    - current task
    - route decision
    - local summary or local skip marker
    - local extract or local skip marker
    - top retrieved memory
-8. Use `python3 /local/bash/local_agent.py dispatch ...` to send the package to the Freewiller gateway.
-9. Send only:
+9. Use `python3 /local/bash/local_agent.py dispatch ...` to send the package to the Freewiller gateway.
+10. Send only:
    - packaged task block
    - compressed recent context
    - required file/tool data
-10. For automation, expose the same orchestration flow through the local agent HTTP service.
+11. For automation, expose the same orchestration flow through the local agent HTTP service.
 
 ## Operational Rules
 
 - Local model is not the default deep reasoner on this host.
 - If local route/summarize/extract exceeds its timeout, fail closed.
 - Long or architecture-grade tasks should skip local deliberation.
-- Retrieval should use memory summaries and structured facts, not raw logs.
-- Respawn backups should restore memory through compact exports and regenerate embeddings locally.
+- Retrieval should use hybrid search:
+  - normalized embedding similarity from SQLite
+  - lexical bonus from FTS5
+- Respawn backups should restore the journal and compact semantic exports, then regenerate embeddings locally when needed.
 - Gateway dispatch expects an OpenClaw-compatible `POST /v1/responses` endpoint with bearer auth and an agent id.
 - The dockerized local-agent service uses host networking on Linux and talks to host Ollama through `127.0.0.1:11434`.
 - A fresh `init.sh` run should recreate both the host runtime and the containerized local-agent service.
@@ -134,6 +168,20 @@ python3 /local/bash/local_memory.py add \
   --source session \
   --tags local,llm,memory \
   --text "Use qwen3:0.6b for local routing and nomic-embed-text for retrieval."
+```
+
+Ingest an endpoint event into the shared journal and semantic memory:
+
+```bash
+python3 /local/bash/local_memory.py ingest \
+  --channel telegram \
+  --session-id dm-8286257781 \
+  --role user \
+  --user-id 8286257781 \
+  --source telegram \
+  --kind conversation \
+  --tags telegram,dm \
+  --text "Remember that Freewiller should keep a single shared memory substrate across endpoints."
 ```
 
 Search memory:
@@ -207,4 +255,8 @@ Check service health:
 
 ```bash
 curl -s http://127.0.0.1:18790/health
+curl -s http://127.0.0.1:18790/memory/stats
+curl -s -X POST http://127.0.0.1:18790/memory/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"single shared memory substrate","limit":3}'
 ```

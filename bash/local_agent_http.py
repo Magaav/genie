@@ -7,6 +7,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import local_agent
+import local_memory
 
 
 HOST = os.environ.get("LOCAL_AGENT_HTTP_HOST", "0.0.0.0")
@@ -17,7 +18,7 @@ def namespace_from_payload(payload: dict) -> argparse.Namespace:
     return argparse.Namespace(
         task=payload.get("task", ""),
         limit=int(payload.get("limit", 3)),
-        store=bool(payload.get("store", False)),
+        store=coerce_bool(payload.get("store", False)),
         kind=payload.get("kind", "note"),
         source=payload.get("source", "session"),
         tags=payload.get("tags", "local,agent"),
@@ -25,8 +26,18 @@ def namespace_from_payload(payload: dict) -> argparse.Namespace:
     )
 
 
+def coerce_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "FreewillerLocalAgent/0.1"
+    server_version = "FreewillerLocalAgent/0.2"
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
@@ -65,6 +76,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return
 
+        if self.path == "/memory/stats":
+            try:
+                self._write_json(HTTPStatus.OK, local_memory.memory_stats())
+            except Exception as exc:
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return
+
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
     def do_POST(self) -> None:
@@ -74,14 +92,58 @@ class Handler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.BAD_REQUEST, {"error": f"invalid json: {exc}"})
             return
 
-        task = payload.get("task", "").strip()
-        if not task:
-            self._write_json(HTTPStatus.BAD_REQUEST, {"error": "task is required"})
-            return
-
-        args = namespace_from_payload(payload)
-
         try:
+            if self.path == "/memory/ingest":
+                text = payload.get("text", "").strip()
+                if not text:
+                    self._write_json(HTTPStatus.BAD_REQUEST, {"error": "text is required"})
+                    return
+                result = local_memory.ingest_event(
+                    channel=payload.get("channel", "http"),
+                    session_id=payload.get("session_id", ""),
+                    role=payload.get("role", "user"),
+                    user_id=str(payload.get("user_id", "")),
+                    source=payload.get("source", "http"),
+                    kind=payload.get("kind", "event"),
+                    text=text,
+                    tags=local_memory.normalize_tags(payload.get("tags", [])),
+                    metadata=local_memory.normalize_metadata(payload.get("metadata", {})),
+                    derive_memory=not coerce_bool(payload.get("skip_memory", False)),
+                )
+                self._write_json(HTTPStatus.OK, result)
+                return
+
+            if self.path == "/memory/search":
+                query = payload.get("query", "").strip()
+                if not query:
+                    self._write_json(HTTPStatus.BAD_REQUEST, {"error": "query is required"})
+                    return
+                limit = int(payload.get("limit", 5))
+                self._write_json(HTTPStatus.OK, {"results": local_memory.search_memory_entries(query, limit)})
+                return
+
+            if self.path == "/memory/context":
+                query = payload.get("query", "").strip()
+                if not query:
+                    self._write_json(HTTPStatus.BAD_REQUEST, {"error": "query is required"})
+                    return
+                limit = int(payload.get("limit", 5))
+                self._write_json(
+                    HTTPStatus.OK,
+                    {
+                        "context": local_memory.build_context(query, limit),
+                        "hits": local_memory.search_memory_entries(query, limit),
+                    },
+                )
+                return
+
+            task = payload.get("task", "").strip()
+            if not task:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "task is required"})
+                return
+
+            args = namespace_from_payload(payload)
+
             if self.path == "/orchestrate":
                 result = local_agent.execute_orchestration(args)
                 self._write_json(HTTPStatus.OK, result)

@@ -118,21 +118,29 @@ def extract_text(text: str) -> str:
 
 
 def add_memory(kind: str, source: str, text: str, tags: str) -> str:
-    return run_command(
+    output = run_command(
         [
             "python3",
             str(LOCAL_MEMORY_PY),
-            "add",
-            "--kind",
-            kind,
+            "ingest",
+            "--channel",
+            "local-agent",
+            "--session-id",
+            "orchestrate",
+            "--role",
+            "user",
             "--source",
             source,
+            "--kind",
+            kind,
             "--text",
             text,
             "--tags",
             tags,
         ]
     )
+    payload = json.loads(output)
+    return payload.get("memory_id", "")
 
 
 def retrieve_context(query: str, limit: int) -> str:
