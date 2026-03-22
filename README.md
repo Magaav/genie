@@ -184,6 +184,14 @@ sudo SUDO_USER=ubuntu bash /local/bash/install_openclaw.sh
 
 That installer checks out the pinned upstream commit in detached-head mode so a fresh bootstrap does not silently drift with upstream `main`.
 
+It also bootstraps the seed in the shape Freewiller expects:
+
+- enables OpenClaw `POST /v1/responses` and `POST /v1/chat/completions`
+- writes a compose override at `/local/state/freewiller/openclaw-seed/docker-compose.override.yml`
+- if `/home/<user>/.codex/auth.json` exists, syncs that Codex auth into OpenClaw seed state
+- when Codex auth is present, sets the default OpenClaw model to `openai-codex/gpt-5.4`
+- rewrites `/local/state/freewiller/freewiller-gateway.env` for the local pinned gateway
+
 ## Backups And Respawn Memory
 
 Bootstrap installs two root cron jobs by default:

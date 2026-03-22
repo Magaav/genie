@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 
 import argparse
+import http.client
 import json
 import os
+import socket
 import subprocess
 import sys
 import textwrap
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -49,7 +53,8 @@ def load_gateway_config() -> dict[str, str]:
         "GATEWAY_URL": os.environ.get("FREEWILLER_GATEWAY_URL", os.environ.get("OPENCLAW_GATEWAY_URL", "")),
         "GATEWAY_TOKEN": os.environ.get("FREEWILLER_GATEWAY_TOKEN", os.environ.get("OPENCLAW_GATEWAY_TOKEN", "")),
         "AGENT_ID": os.environ.get("FREEWILLER_AGENT_ID", os.environ.get("OPENCLAW_AGENT_ID", "main")),
-        "MODEL": os.environ.get("FREEWILLER_MODEL", os.environ.get("OPENCLAW_MODEL", "freewiller")),
+        "MODEL": os.environ.get("FREEWILLER_MODEL", os.environ.get("OPENCLAW_MODEL", "openclaw:main")),
+        "GATEWAY_API": os.environ.get("FREEWILLER_GATEWAY_API", os.environ.get("OPENCLAW_GATEWAY_API", "auto")),
         "USER": os.environ.get("FREEWILLER_USER", os.environ.get("OPENCLAW_USER", "freewiller-local-agent")),
         "MAX_OUTPUT_TOKENS": os.environ.get(
             "FREEWILLER_MAX_OUTPUT_TOKENS",
@@ -77,6 +82,8 @@ def load_gateway_config() -> dict[str, str]:
                 config["AGENT_ID"] = value
             elif key in {"FREEWILLER_MODEL", "OPENCLAW_MODEL"}:
                 config["MODEL"] = value
+            elif key in {"FREEWILLER_GATEWAY_API", "OPENCLAW_GATEWAY_API"}:
+                config["GATEWAY_API"] = value
             elif key in {"FREEWILLER_USER", "OPENCLAW_USER"}:
                 config["USER"] = value
             elif key in {"FREEWILLER_MAX_OUTPUT_TOKENS", "OPENCLAW_MAX_OUTPUT_TOKENS"}:
@@ -217,6 +224,109 @@ def extract_response_text(response_json: dict[str, Any]) -> str:
     return "\n".join(chunks).strip()
 
 
+def extract_chat_completions_text(response_json: dict[str, Any]) -> str:
+    choices = response_json.get("choices", [])
+    if not choices:
+        return ""
+
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if isinstance(content, str):
+        return content.strip()
+
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text_value = item.get("text")
+                if isinstance(text_value, str):
+                    chunks.append(text_value)
+        return "\n".join(chunks).strip()
+
+    return ""
+
+
+def wait_for_gateway_live(gateway_url: str, timeout_seconds: float = 15.0) -> None:
+    deadline = time.time() + timeout_seconds
+    health_url = f"{gateway_url.rstrip('/')}/healthz"
+    last_error = ""
+
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(health_url, timeout=3) as response:
+                if 200 <= response.status < 300:
+                    return
+        except (urllib.error.URLError, TimeoutError, ConnectionResetError, http.client.RemoteDisconnected) as exc:
+            last_error = str(exc)
+        time.sleep(1)
+
+    if last_error:
+        raise RuntimeError(f"Gateway did not become live at {health_url}: {last_error}")
+    raise RuntimeError(f"Gateway did not become live at {health_url}")
+
+
+def build_gateway_candidates(
+    config: dict[str, str],
+    package_content: str,
+    instructions: str | None,
+) -> list[tuple[str, dict[str, Any], Any]]:
+    model = config.get("MODEL", "openclaw:main")
+    user = config.get("USER", "freewiller-local-agent")
+    max_output_tokens = int(config.get("MAX_OUTPUT_TOKENS", "2048"))
+    requested_api = config.get("GATEWAY_API", "auto").strip().lower()
+
+    responses_body: dict[str, Any] = {
+        "model": model,
+        "input": package_content,
+        "user": user,
+        "max_output_tokens": max_output_tokens,
+        "stream": False,
+    }
+    if instructions:
+        responses_body["instructions"] = instructions
+
+    chat_messages: list[dict[str, str]] = []
+    if instructions:
+        chat_messages.append({"role": "system", "content": instructions})
+    chat_messages.append({"role": "user", "content": package_content})
+    chat_body: dict[str, Any] = {
+        "model": model,
+        "messages": chat_messages,
+        "user": user,
+        "max_tokens": max_output_tokens,
+        "stream": False,
+    }
+
+    if requested_api in {"responses", "openresponses"}:
+        return [("/v1/responses", responses_body, extract_response_text)]
+    if requested_api in {"chat", "chat_completions", "chat-completions"}:
+        return [("/v1/chat/completions", chat_body, extract_chat_completions_text)]
+
+    return [
+        ("/v1/responses", responses_body, extract_response_text),
+        ("/v1/chat/completions", chat_body, extract_chat_completions_text),
+    ]
+
+
+def extract_http_error_message(exc: urllib.error.HTTPError) -> str:
+    body = exc.read().decode("utf-8", errors="replace")
+    if not body:
+        return f"HTTP {exc.code} {exc.reason}"
+
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return f"HTTP {exc.code} {exc.reason}: {body.strip()}"
+
+    if isinstance(payload, dict):
+        error_obj = payload.get("error")
+        if isinstance(error_obj, dict):
+            error_message = error_obj.get("message")
+            if isinstance(error_message, str) and error_message.strip():
+                return f"HTTP {exc.code} {exc.reason}: {error_message.strip()}"
+    return f"HTTP {exc.code} {exc.reason}: {body.strip()}"
+
+
 def dispatch_to_gateway(package_path: str, instructions: str | None = None) -> dict[str, Any]:
     config = load_gateway_config()
     gateway_url = config.get("GATEWAY_URL", "").rstrip("/")
@@ -227,30 +337,56 @@ def dispatch_to_gateway(package_path: str, instructions: str | None = None) -> d
         )
 
     package_content = Path(package_path).read_text(encoding="utf-8")
-    body: dict[str, Any] = {
-        "model": config.get("MODEL", "freewiller"),
-        "input": package_content,
-        "user": config.get("USER", "freewiller-local-agent"),
-        "max_output_tokens": int(config.get("MAX_OUTPUT_TOKENS", "2048")),
-        "stream": False,
+    wait_for_gateway_live(gateway_url)
+    headers = {
+        "Authorization": f"Bearer {gateway_token}",
+        "Content-Type": "application/json",
+        "x-openclaw-agent-id": config.get("AGENT_ID", "main"),
     }
-    if instructions:
-        body["instructions"] = instructions
+    candidates = build_gateway_candidates(config, package_content, instructions)
+    response_json: dict[str, Any] | None = None
+    text_output = ""
+    last_error = "Gateway request failed."
 
-    req = urllib.request.Request(
-        f"{gateway_url}/v1/responses",
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {gateway_token}",
-            "Content-Type": "application/json",
-            "x-openclaw-agent-id": config.get("AGENT_ID", "main"),
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=60) as response:
-        response_json = json.loads(response.read().decode("utf-8"))
+    for attempt in range(1, 4):
+        for index, (endpoint, body, extract_text_fn) in enumerate(candidates):
+            req = urllib.request.Request(
+                f"{gateway_url}{endpoint}",
+                data=json.dumps(body).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=90) as response:
+                    response_json = json.loads(response.read().decode("utf-8"))
+                text_output = extract_text_fn(response_json)
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404 and index < len(candidates) - 1:
+                    last_error = extract_http_error_message(exc)
+                    continue
+                raise RuntimeError(extract_http_error_message(exc)) from exc
+            except (
+                urllib.error.URLError,
+                http.client.RemoteDisconnected,
+                ConnectionResetError,
+                TimeoutError,
+                socket.timeout,
+            ) as exc:
+                last_error = str(exc)
+                if attempt >= 3:
+                    raise RuntimeError(f"Gateway request failed after retries: {last_error}") from exc
+                time.sleep(attempt)
+                break
 
-    text_output = extract_response_text(response_json)
+        if response_json is not None:
+            break
+    else:
+        raise RuntimeError(last_error)
+
+    if response_json is None:
+        raise RuntimeError(last_error)
+
     raw_json_path = save_response(json.dumps(response_json, indent=2, ensure_ascii=True) + "\n", "freewiller-gateway-response", "json")
     text_path = save_response(text_output + ("\n" if text_output else ""), "freewiller-gateway-response", "md")
 

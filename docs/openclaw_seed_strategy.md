@@ -20,6 +20,13 @@ As of `2026-03-22`, the verified upstream head used for the first seed import is
 
 - `/local/state/freewiller/openclaw-seed/seed.json`
 
+The seed installer also:
+
+- enables the pinned gateway HTTP compatibility endpoints
+- writes a compose override for seed-specific runtime wiring
+- reuses host Codex CLI auth from `~/.codex/auth.json` when available
+- defaults the seeded agent to `openai-codex/gpt-5.4` when that auth is present
+
 ## Why Pin It
 
 - upstream `main` can change behavior without warning
