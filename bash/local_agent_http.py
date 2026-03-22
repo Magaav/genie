@@ -3,11 +3,13 @@
 import argparse
 import json
 import os
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import local_agent
 import local_memory
+import openclaw_memory_bridge
 
 
 HOST = os.environ.get("LOCAL_AGENT_HTTP_HOST", "0.0.0.0")
@@ -169,12 +171,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
+    queue_stop_event = openclaw_memory_bridge.start_queue_worker()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if isinstance(queue_stop_event, threading.Event):
+            queue_stop_event.set()
         server.server_close()
     return 0
 

@@ -16,6 +16,7 @@ OPENCLAW_RUNTIME_IMAGE="${OPENCLAW_RUNTIME_IMAGE:-ghcr.io/openclaw/openclaw@sha2
 OPENCLAW_REPO_DIR="${OPENCLAW_REPO_DIR:-/local/openclaw}"
 OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-/local/.openclaw}"
 OPENCLAW_WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-${OPENCLAW_CONFIG_DIR}/workspace}"
+OPENCLAW_CONTAINER_WORKSPACE_DIR="${OPENCLAW_CONTAINER_WORKSPACE_DIR:-/home/node/.openclaw/workspace}"
 OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 OPENCLAW_BRIDGE_PORT="${OPENCLAW_BRIDGE_PORT:-19790}"
 OPENCLAW_GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
@@ -32,6 +33,10 @@ OPENCLAW_CODEX_AUTH_PATH="${OPENCLAW_CODEX_AUTH_PATH:-${ACTUAL_HOME}/.codex/auth
 OPENCLAW_CODEX_HOME="${OPENCLAW_CODEX_HOME:-/home/node/.openclaw/external-auth/codex}"
 OPENCLAW_DEFAULT_MODEL="${OPENCLAW_DEFAULT_MODEL:-openai-codex/gpt-5.4}"
 OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-$(openssl rand -hex 32)}"
+FREEWILLER_OPENCLAW_HOOKS_SRC_DIR="${FREEWILLER_OPENCLAW_HOOKS_SRC_DIR:-/local/openclaw-hooks}"
+FREEWILLER_OPENCLAW_HOOKS_WORKSPACE_DIR="${FREEWILLER_OPENCLAW_HOOKS_WORKSPACE_DIR:-${OPENCLAW_WORKSPACE_DIR}/hooks}"
+FREEWILLER_MEMORY_QUEUE_FILE="${FREEWILLER_MEMORY_QUEUE_FILE:-${OPENCLAW_CONTAINER_WORKSPACE_DIR}/freewiller-ingest/openclaw-memory-queue.jsonl}"
+FREEWILLER_MEMORY_BRIDGE_MAX_TEXT_CHARS="${FREEWILLER_MEMORY_BRIDGE_MAX_TEXT_CHARS:-3500}"
 OPENCLAW_CODEX_AUTH_SYNCED=0
 
 fail() {
@@ -73,6 +78,7 @@ prepare_paths() {
     "$OPENCLAW_CONFIG_DIR/agents/main/agent" \
     "$OPENCLAW_CONFIG_DIR/agents/main/sessions" \
     "$OPENCLAW_WORKSPACE_DIR" \
+    "$FREEWILLER_OPENCLAW_HOOKS_WORKSPACE_DIR" \
     "$OPENCLAW_CODEX_AUTH_DIR" \
     "$OPENCLAW_SEED_METADATA_DIR"
   chown -R "$OPENCLAW_NODE_UID:$OPENCLAW_NODE_GID" "$OPENCLAW_CONFIG_DIR"
@@ -98,6 +104,8 @@ services:
   openclaw-gateway:
     environment:
       CODEX_HOME: $OPENCLAW_CODEX_HOME
+      FREEWILLER_MEMORY_QUEUE_FILE: $FREEWILLER_MEMORY_QUEUE_FILE
+      FREEWILLER_MEMORY_BRIDGE_MAX_TEXT_CHARS: "$FREEWILLER_MEMORY_BRIDGE_MAX_TEXT_CHARS"
   openclaw-cli:
     environment:
       CODEX_HOME: $OPENCLAW_CODEX_HOME
@@ -130,6 +138,29 @@ pull_runtime_image() {
   docker pull "$OPENCLAW_RUNTIME_IMAGE"
 }
 
+sync_freewiller_openclaw_hooks() {
+  local source_dir="$FREEWILLER_OPENCLAW_HOOKS_SRC_DIR"
+  local target_dir="$FREEWILLER_OPENCLAW_HOOKS_WORKSPACE_DIR"
+  local hook_path
+  local hook_name
+
+  if [ ! -d "$source_dir" ]; then
+    log_step "No Freewiller OpenClaw hooks found at $source_dir; skipping hook sync"
+    return 0
+  fi
+
+  mkdir -p "$target_dir"
+  for hook_path in "$source_dir"/*; do
+    [ -e "$hook_path" ] || continue
+    hook_name="$(basename "$hook_path")"
+    rm -rf "$target_dir/$hook_name"
+    cp -R "$hook_path" "$target_dir/$hook_name"
+  done
+  chown -R "$OPENCLAW_NODE_UID:$OPENCLAW_NODE_GID" "$target_dir"
+  find "$target_dir" -type d -exec chmod 750 {} \;
+  find "$target_dir" -type f -exec chmod 640 {} \;
+}
+
 run_openclaw_node() {
   openclaw_compose run --rm --no-deps --entrypoint node openclaw-gateway dist/index.js "$@"
 }
@@ -139,6 +170,8 @@ configure_openclaw_gateway() {
   run_openclaw_node config set gateway.bind "$OPENCLAW_GATEWAY_BIND" >/dev/null
   run_openclaw_node config set gateway.http.endpoints.responses.enabled true >/dev/null
   run_openclaw_node config set gateway.http.endpoints.chatCompletions.enabled true >/dev/null
+  run_openclaw_node config set hooks.internal.enabled true --strict-json >/dev/null
+  run_openclaw_node config set hooks.internal.entries.freewiller-memory-bridge.enabled true --strict-json >/dev/null
 
   if [ "$OPENCLAW_CODEX_AUTH_SYNCED" = "1" ]; then
     run_openclaw_node config set agents.defaults.model.primary "$OPENCLAW_DEFAULT_MODEL" >/dev/null
@@ -186,6 +219,8 @@ write_seed_metadata() {
   "codex_auth_source": "$OPENCLAW_CODEX_AUTH_PATH",
   "codex_auth_synced": $OPENCLAW_CODEX_AUTH_SYNCED,
   "default_model": "$OPENCLAW_DEFAULT_MODEL",
+  "workspace_hooks_dir": "$FREEWILLER_OPENCLAW_HOOKS_WORKSPACE_DIR",
+  "freewiller_memory_queue_file": "$FREEWILLER_MEMORY_QUEUE_FILE",
   "recorded_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 }
 EOF
@@ -237,6 +272,9 @@ main() {
 
   log_step "Syncing Codex auth into OpenClaw seed state when available"
   sync_codex_auth
+
+  log_step "Syncing Freewiller-managed OpenClaw hooks into workspace"
+  sync_freewiller_openclaw_hooks
 
   log_step "Writing OpenClaw compose override"
   write_compose_override

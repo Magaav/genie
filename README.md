@@ -206,6 +206,18 @@ It also bootstraps the seed in the shape Freewiller expects:
 - if `/home/<user>/.codex/auth.json` exists, syncs that Codex auth into OpenClaw seed state
 - when Codex auth is present, sets the default OpenClaw model to `openai-codex/gpt-5.4`
 - rewrites `/local/state/freewiller/freewiller-gateway.env` for the local pinned gateway
+- installs the Freewiller internal hook bridge into the OpenClaw workspace
+- mirrors OpenClaw `message:preprocessed` and `message:sent` events into the shared memory substrate automatically
+
+The automatic OpenClaw and Telegram memory bridge works like this:
+
+- OpenClaw internal hooks append compact event payloads to `/local/.openclaw/workspace/freewiller-ingest/openclaw-memory-queue.jsonl`
+- the dockerized local-agent drains that queue in the background
+- each queued event is written into:
+  - `/local/state/freewiller/memory/journal.jsonl`
+  - `/local/state/freewiller/memory/memory.sqlite3`
+
+That means Telegram and OpenClaw conversations can converge into the same memory substrate without calling `POST /memory/ingest` manually for each chat message.
 
 ## Backups And Respawn Memory
 
@@ -273,6 +285,14 @@ curl -s -X POST http://127.0.0.1:18790/memory/context \
 ```
 
 On restore, embeddings are rebuilt locally from the compact memory export so a respawn can recover its prior memory state without carrying the full raw runtime tree. If `/local/.env` existed when the backup was made, it is restored too.
+
+Manual `POST /memory/ingest` is still useful for:
+
+- IDE continuity notes
+- imported notes from other systems
+- one-off operator instructions
+
+OpenClaw and Telegram message events are mirrored automatically once the pinned seed is installed.
 
 Manual commands:
 

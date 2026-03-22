@@ -12,6 +12,10 @@ services:
       OLLAMA_API_URL: http://127.0.0.1:11434
       LOCAL_AGENT_HTTP_HOST: 127.0.0.1
       LOCAL_AGENT_HTTP_PORT: 18790
+      OPENCLAW_MEMORY_QUEUE_ENABLED: "1"
+      OPENCLAW_MEMORY_QUEUE_FILE: /local/bridge/openclaw/openclaw-memory-queue.jsonl
+      OPENCLAW_MEMORY_QUEUE_OFFSET_FILE: /local/state/freewiller/bridge/openclaw-memory-queue.offset
+      OPENCLAW_MEMORY_QUEUE_POLL_SECONDS: 5
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18790/health"]
       interval: 30s
@@ -21,3 +25,4 @@ services:
     volumes:
       - /local/state/freewiller:/local/state/freewiller
       - /local/log/freewiller:/local/log/freewiller
+      - /local/.openclaw/workspace/freewiller-ingest:/local/bridge/openclaw
