@@ -19,13 +19,17 @@ This machine uses a guarded local utility layer before remote escalation.
   - optional local compression
   - memory write + retrieval
   - remote prompt package emission
+  - OpenClaw Gateway dispatch via `POST /v1/responses`
 
 ## Storage
 
 Runtime state lives outside the repo:
 
 - config: `/var/lib/openclaw-local-llm/local-llm.env`
+- gateway config: `/var/lib/openclaw-local-llm/openclaw-gateway.env`
 - memory db: `/var/lib/openclaw-local-llm/memory/entries.jsonl`
+- remote packages: `/var/lib/openclaw-local-llm/packages/`
+- gateway responses: `/var/lib/openclaw-local-llm/responses/`
 
 Each memory entry stores:
 
@@ -62,7 +66,8 @@ Each memory entry stores:
    - local summary or local skip marker
    - local extract or local skip marker
    - top retrieved memory
-8. Send only:
+8. Use `python3 /local/bash/local_agent.py dispatch ...` to send the package to OpenClaw Gateway.
+9. Send only:
    - packaged task block
    - compressed recent context
    - required file/tool data
@@ -73,6 +78,7 @@ Each memory entry stores:
 - If local route/summarize/extract exceeds its timeout, fail closed.
 - Long or architecture-grade tasks should skip local deliberation.
 - Retrieval should use memory summaries and structured facts, not raw logs.
+- Gateway dispatch expects OpenClaw Gateway `POST /v1/responses` with bearer auth and an agent id.
 
 ## Example Commands
 
@@ -106,6 +112,18 @@ Build a remote prompt package:
 
 ```bash
 python3 /local/bash/local_agent.py orchestrate \
+  --task "Design memory routing for a coding agent" \
+  --limit 3 \
+  --store \
+  --kind decision \
+  --source session \
+  --tags agent,memory,routing
+```
+
+Dispatch to OpenClaw Gateway:
+
+```bash
+python3 /local/bash/local_agent.py dispatch \
   --task "Design memory routing for a coding agent" \
   --limit 3 \
   --store \

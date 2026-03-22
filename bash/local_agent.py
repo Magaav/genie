@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +15,34 @@ LOCAL_LLM_SH = Path("/local/bash/local_llm.sh")
 LOCAL_MEMORY_PY = Path("/local/bash/local_memory.py")
 LOCAL_LLM_DIR = Path(os.environ.get("LOCAL_LLM_DIR", "/var/lib/openclaw-local-llm"))
 PACKAGES_DIR = LOCAL_LLM_DIR / "packages"
+RESPONSES_DIR = LOCAL_LLM_DIR / "responses"
+GATEWAY_ENV_FILE = LOCAL_LLM_DIR / "openclaw-gateway.env"
 
 
 def ensure_dirs() -> None:
     PACKAGES_DIR.mkdir(parents=True, exist_ok=True)
+    RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_gateway_config() -> dict[str, str]:
+    config = {
+        "OPENCLAW_GATEWAY_URL": os.environ.get("OPENCLAW_GATEWAY_URL", ""),
+        "OPENCLAW_GATEWAY_TOKEN": os.environ.get("OPENCLAW_GATEWAY_TOKEN", ""),
+        "OPENCLAW_AGENT_ID": os.environ.get("OPENCLAW_AGENT_ID", "main"),
+        "OPENCLAW_MODEL": os.environ.get("OPENCLAW_MODEL", "openclaw"),
+        "OPENCLAW_USER": os.environ.get("OPENCLAW_USER", "local-agent"),
+        "OPENCLAW_MAX_OUTPUT_TOKENS": os.environ.get("OPENCLAW_MAX_OUTPUT_TOKENS", "2048"),
+    }
+
+    if GATEWAY_ENV_FILE.exists():
+        for raw_line in GATEWAY_ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            config[key.strip()] = value.strip()
+
+    return config
 
 
 def run_command(args: list[str]) -> str:
@@ -129,7 +154,75 @@ def save_package(content: str, prefix: str = "remote-package") -> str:
     return str(output_path)
 
 
-def orchestrate(args: argparse.Namespace) -> int:
+def save_response(content: str, prefix: str, suffix: str) -> str:
+    ensure_dirs()
+    existing = sorted(RESPONSES_DIR.glob(f"{prefix}-*.{suffix}"))
+    next_index = len(existing) + 1
+    output_path = RESPONSES_DIR / f"{prefix}-{next_index:06d}.{suffix}"
+    output_path.write_text(content, encoding="utf-8")
+    return str(output_path)
+
+
+def extract_response_text(response_json: dict[str, Any]) -> str:
+    if isinstance(response_json.get("output_text"), str):
+        return response_json["output_text"]
+
+    output_items = response_json.get("output", [])
+    chunks: list[str] = []
+    for item in output_items:
+        for content in item.get("content", []):
+            text_value = content.get("text") or content.get("output_text")
+            if text_value:
+                chunks.append(text_value)
+    return "\n".join(chunks).strip()
+
+
+def dispatch_to_gateway(package_path: str, instructions: str | None = None) -> dict[str, Any]:
+    config = load_gateway_config()
+    gateway_url = config.get("OPENCLAW_GATEWAY_URL", "").rstrip("/")
+    gateway_token = config.get("OPENCLAW_GATEWAY_TOKEN", "")
+    if not gateway_url or not gateway_token:
+        raise RuntimeError(
+            f"Gateway config is incomplete. Set OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN in {GATEWAY_ENV_FILE}."
+        )
+
+    package_content = Path(package_path).read_text(encoding="utf-8")
+    body: dict[str, Any] = {
+        "model": config.get("OPENCLAW_MODEL", "openclaw"),
+        "input": package_content,
+        "user": config.get("OPENCLAW_USER", "local-agent"),
+        "max_output_tokens": int(config.get("OPENCLAW_MAX_OUTPUT_TOKENS", "2048")),
+        "stream": False,
+    }
+    if instructions:
+        body["instructions"] = instructions
+
+    req = urllib.request.Request(
+        f"{gateway_url}/v1/responses",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {gateway_token}",
+            "Content-Type": "application/json",
+            "x-openclaw-agent-id": config.get("OPENCLAW_AGENT_ID", "main"),
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as response:
+        response_json = json.loads(response.read().decode("utf-8"))
+
+    text_output = extract_response_text(response_json)
+    raw_json_path = save_response(json.dumps(response_json, indent=2, ensure_ascii=True) + "\n", "gateway-response", "json")
+    text_path = save_response(text_output + ("\n" if text_output else ""), "gateway-response", "md")
+
+    return {
+        "response_json": response_json,
+        "response_text": text_output,
+        "response_json_path": raw_json_path,
+        "response_text_path": text_path,
+    }
+
+
+def execute_orchestration(args: argparse.Namespace) -> dict[str, Any]:
     route = route_task(args.task)
     memory_context = retrieve_context(args.task, args.limit)
 
@@ -137,8 +230,8 @@ def orchestrate(args: argparse.Namespace) -> int:
     local_extract = "SKIPPED_LOCAL_EXTRACT"
 
     if route["label"] == "LOCAL":
-      local_summary = summarize_text(args.task)
-      local_extract = extract_text(args.task)
+        local_summary = summarize_text(args.task)
+        local_extract = extract_text(args.task)
 
     if args.store:
         memory_source_text = args.memory_text if args.memory_text else args.task
@@ -155,7 +248,7 @@ def orchestrate(args: argparse.Namespace) -> int:
     )
     package_path = save_package(remote_package)
 
-    output = {
+    return {
         "route": route,
         "stored_memory_id": memory_id,
         "remote_package_path": package_path,
@@ -163,6 +256,27 @@ def orchestrate(args: argparse.Namespace) -> int:
         "local_summary": local_summary,
         "local_extract": local_extract,
     }
+
+
+def orchestrate(args: argparse.Namespace) -> int:
+    output = execute_orchestration(args)
+    print(json.dumps(output, indent=2, ensure_ascii=True))
+    return 0
+
+
+def dispatch(args: argparse.Namespace) -> int:
+    output = execute_orchestration(args)
+    instructions = textwrap.dedent(
+        """\
+        You are receiving a packaged request from a local orchestration layer.
+        Treat ROUTE, LOCAL_SUMMARY, LOCAL_EXTRACT, and RETRIEVED_MEMORY as prep material.
+        Focus on answering the TASK directly.
+        """
+    ).strip()
+    gateway_result = dispatch_to_gateway(output["remote_package_path"], instructions=instructions)
+    output["gateway_response_text"] = gateway_result["response_text"]
+    output["gateway_response_json_path"] = gateway_result["response_json_path"]
+    output["gateway_response_text_path"] = gateway_result["response_text_path"]
     print(json.dumps(output, indent=2, ensure_ascii=True))
     return 0
 
@@ -181,13 +295,27 @@ def build_parser() -> argparse.ArgumentParser:
     orchestrate_parser.add_argument("--memory-text", default="")
     orchestrate_parser.set_defaults(func=orchestrate)
 
+    dispatch_parser = subparsers.add_parser("dispatch")
+    dispatch_parser.add_argument("--task", required=True)
+    dispatch_parser.add_argument("--limit", type=int, default=3)
+    dispatch_parser.add_argument("--store", action="store_true")
+    dispatch_parser.add_argument("--kind", default="note")
+    dispatch_parser.add_argument("--source", default="session")
+    dispatch_parser.add_argument("--tags", default="local,agent")
+    dispatch_parser.add_argument("--memory-text", default="")
+    dispatch_parser.set_defaults(func=dispatch)
+
     return parser
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    return args.func(args)
+    try:
+        return args.func(args)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
