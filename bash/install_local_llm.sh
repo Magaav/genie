@@ -6,8 +6,9 @@ source "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/system/env.sh"
 
 ACTUAL_USER="${SUDO_USER:-$USER}"
 ACTUAL_HOME="$(getent passwd "$ACTUAL_USER" | cut -d: -f6)"
-DEFAULT_LOCAL_LLM_DIR="/var/lib/freewiller"
-LEGACY_LOCAL_LLM_DIR="/var/lib/openclaw-local-llm"
+DEFAULT_LOCAL_LLM_DIR="/local/state/freewiller"
+LEGACY_LOCAL_LLM_DIR_PRIMARY="/var/lib/freewiller"
+LEGACY_LOCAL_LLM_DIR_SECONDARY="/var/lib/openclaw-local-llm"
 LOCAL_LLM_DIR="${LOCAL_LLM_DIR:-$DEFAULT_LOCAL_LLM_DIR}"
 LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-${LOCAL_LLM_DIR}/local-llm.env}"
 FREEWILLER_GATEWAY_ENV_FILE="${FREEWILLER_GATEWAY_ENV_FILE:-${LOCAL_LLM_DIR}/freewiller-gateway.env}"
@@ -42,8 +43,15 @@ migrate_legacy_state_dir() {
     return
   fi
 
-  if [ -d "$LEGACY_LOCAL_LLM_DIR" ] && [ ! -e "$DEFAULT_LOCAL_LLM_DIR" ]; then
-    run_as_root mv "$LEGACY_LOCAL_LLM_DIR" "$DEFAULT_LOCAL_LLM_DIR"
+  run_as_root mkdir -p "$(dirname "$DEFAULT_LOCAL_LLM_DIR")"
+
+  if [ -d "$LEGACY_LOCAL_LLM_DIR_PRIMARY" ] && [ ! -e "$DEFAULT_LOCAL_LLM_DIR" ]; then
+    run_as_root mv "$LEGACY_LOCAL_LLM_DIR_PRIMARY" "$DEFAULT_LOCAL_LLM_DIR"
+    return
+  fi
+
+  if [ -d "$LEGACY_LOCAL_LLM_DIR_SECONDARY" ] && [ ! -e "$DEFAULT_LOCAL_LLM_DIR" ]; then
+    run_as_root mv "$LEGACY_LOCAL_LLM_DIR_SECONDARY" "$DEFAULT_LOCAL_LLM_DIR"
   fi
 }
 

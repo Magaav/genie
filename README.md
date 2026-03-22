@@ -27,10 +27,12 @@ After a successful bootstrap, the VM will have:
 - the Freewiller local-agent container running on:
   - `http://127.0.0.1:18790`
 
-Runtime state is stored outside the repo:
+Runtime state is stored under `/local`, but outside Git tracking:
 
-- `/var/lib/freewiller`
-- `/var/log/freewiller`
+- `/local/state/freewiller`
+- `/local/log/freewiller`
+
+These paths live under `/local` so you can inspect and evolve the running node from the same workspace, but they are still ignored by Git.
 
 ## Requirements
 
@@ -53,10 +55,7 @@ Tested flow:
 On the new VM, run:
 
 ```bash
-sudo mkdir -p /local
-curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh -o /tmp/freewiller-init.sh
-sudo install -m 755 /tmp/freewiller-init.sh /local/init.sh
-sudo bash /local/init.sh
+sudo bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
 ```
 
 That is the default public-repo path. No GitHub deploy key is required.
@@ -130,7 +129,7 @@ Bootstrap does not configure a remote gateway token by default.
 If you want Freewiller to dispatch packaged requests to a remote OpenClaw-compatible gateway, edit:
 
 ```bash
-/var/lib/freewiller/freewiller-gateway.env
+/local/state/freewiller/freewiller-gateway.env
 ```
 
 Then restart the local-agent service:

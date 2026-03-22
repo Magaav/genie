@@ -3,16 +3,15 @@
 # Bootstrap a fresh Oracle/Ubuntu instance for the Freewiller stack.
 #
 # Prerequisites:
-# 1. Copy this script onto the new instance as /local/init.sh.
-# 2. Run it as root.
-# 3. If you want to clone over SSH instead of the default public HTTPS URL,
+# 1. Run it as root.
+# 2. If you want to clone over SSH instead of the default public HTTPS URL,
 #    provide a key with one of:
 #    - DEPLOY_KEY_B64: base64-encoded private key content
 #    - DEPLOY_KEY_CONTENT: raw private key content
 #    - DEPLOY_KEY_PATH: existing private key file path on the instance
 #
 # Example:
-#   sudo bash /local/init.sh
+#   sudo bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
 #
 # After completion:
 # - open a fresh SSH/VS Code shell, or run `newgrp docker`, before using Docker
@@ -105,7 +104,6 @@ sync_repo() {
     log "Updating existing repository at ${REPO_DIR}"
     sudo -u "$BOOTSTRAP_USER" git -C "$REPO_DIR" pull --ff-only origin master
   else
-    local bootstrap_script="${REPO_DIR}/$(basename "$0")"
     local temp_parent_dir
     local temp_clone_dir
 
@@ -115,14 +113,12 @@ sync_repo() {
     log "Cloning repository into temporary directory ${temp_clone_dir}"
     sudo -u "$BOOTSTRAP_USER" git clone "$REPO_URL" "$temp_clone_dir"
 
-    if find "$REPO_DIR" -mindepth 1 -maxdepth 1 ! -samefile "$bootstrap_script" | grep -q .; then
+    if find "$REPO_DIR" -mindepth 1 -maxdepth 1 ! -name 'init.sh' | grep -q .; then
       rm -rf "$temp_parent_dir"
-      fail "${REPO_DIR} contains files other than $(basename "$bootstrap_script") and is not a git repository"
+      fail "${REPO_DIR} contains files other than init.sh and is not a git repository"
     fi
 
-    if [ -f "$bootstrap_script" ]; then
-      rm -f "$bootstrap_script"
-    fi
+    rm -f "${REPO_DIR}/init.sh"
 
     log "Moving repository into ${REPO_DIR}"
     find "$temp_clone_dir" -mindepth 1 -maxdepth 1 -exec mv {} "$REPO_DIR"/ \;

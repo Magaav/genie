@@ -16,12 +16,15 @@ from typing import Any
 def resolve_state_dir() -> Path:
     if os.environ.get("LOCAL_LLM_DIR"):
         return Path(os.environ["LOCAL_LLM_DIR"])
-    default_path = Path("/var/lib/freewiller")
-    legacy_path = Path("/var/lib/openclaw-local-llm")
+    default_path = Path("/local/state/freewiller")
+    primary_legacy_path = Path("/var/lib/freewiller")
+    secondary_legacy_path = Path("/var/lib/openclaw-local-llm")
     if default_path.exists():
         return default_path
-    if legacy_path.exists():
-        return legacy_path
+    if primary_legacy_path.exists():
+        return primary_legacy_path
+    if secondary_legacy_path.exists():
+        return secondary_legacy_path
     return default_path
 
 

@@ -6,9 +6,13 @@ set -e  # Exit on any error
 ROOT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../.."
 INSTANCE_NAME="freewiller.ohana"
 INSTANCE_EMAIL="vic.scar@gmail.com"
-FREEWILLER_STATE_DIR_DEFAULT="/var/lib/freewiller"
-LEGACY_STATE_DIR="/var/lib/openclaw-local-llm"
-LOG_DIR="${FREEWILLER_LOG_DIR:-${OPENCLAW_LOG_DIR:-/var/log/freewiller}}"
+FREEWILLER_STATE_DIR_DEFAULT="/local/state/freewiller"
+LEGACY_STATE_DIR_PRIMARY="/var/lib/freewiller"
+LEGACY_STATE_DIR_SECONDARY="/var/lib/openclaw-local-llm"
+FREEWILLER_LOG_DIR_DEFAULT="/local/log/freewiller"
+LEGACY_LOG_DIR_PRIMARY="/var/log/freewiller"
+LEGACY_LOG_DIR_SECONDARY="/var/log/openclaw"
+LOG_DIR="${FREEWILLER_LOG_DIR:-${OPENCLAW_LOG_DIR:-$FREEWILLER_LOG_DIR_DEFAULT}}"
 LOG_BASH_DIR="$LOG_DIR/system/bash"
 BASH_DIR="$ROOT_DIR/bash"
 NOW=$(date '+%Y-%m-%d_%H-%M-%S')
@@ -26,8 +30,10 @@ resolve_state_dir() {
     printf '%s' "$LOCAL_LLM_DIR"
   elif [ -d "$FREEWILLER_STATE_DIR_DEFAULT" ]; then
     printf '%s' "$FREEWILLER_STATE_DIR_DEFAULT"
-  elif [ -d "$LEGACY_STATE_DIR" ]; then
-    printf '%s' "$LEGACY_STATE_DIR"
+  elif [ -d "$LEGACY_STATE_DIR_PRIMARY" ]; then
+    printf '%s' "$LEGACY_STATE_DIR_PRIMARY"
+  elif [ -d "$LEGACY_STATE_DIR_SECONDARY" ]; then
+    printf '%s' "$LEGACY_STATE_DIR_SECONDARY"
   else
     printf '%s' "$FREEWILLER_STATE_DIR_DEFAULT"
   fi
@@ -84,7 +90,11 @@ export INSTANCE_EMAIL
 export LOG_DIR
 export LOG_BASH_DIR
 export FREEWILLER_STATE_DIR_DEFAULT
-export LEGACY_STATE_DIR
+export LEGACY_STATE_DIR_PRIMARY
+export LEGACY_STATE_DIR_SECONDARY
+export FREEWILLER_LOG_DIR_DEFAULT
+export LEGACY_LOG_DIR_PRIMARY
+export LEGACY_LOG_DIR_SECONDARY
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   case "$1" in

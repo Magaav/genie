@@ -13,7 +13,7 @@ Freewiller uses a guarded local utility layer before remote escalation.
 - host runtime: Ollama on `127.0.0.1:11434`
 - containerized app layer: `local-agent`
   - HTTP boundary for orchestration and dispatch
-  - shared runtime state via bind mounts under `/var/lib/freewiller`
+  - shared runtime state via bind mounts under `/local/state/freewiller`
 
 ## Roles
 
@@ -42,13 +42,13 @@ Freewiller uses a guarded local utility layer before remote escalation.
 
 ## Storage
 
-Runtime state lives outside the repo:
+Runtime state lives under `/local`, but outside Git tracking:
 
-- config: `/var/lib/freewiller/local-llm.env`
-- gateway config: `/var/lib/freewiller/freewiller-gateway.env`
-- memory db: `/var/lib/freewiller/memory/entries.jsonl`
-- remote packages: `/var/lib/freewiller/packages/`
-- gateway responses: `/var/lib/freewiller/responses/`
+- config: `/local/state/freewiller/local-llm.env`
+- gateway config: `/local/state/freewiller/freewiller-gateway.env`
+- memory db: `/local/state/freewiller/memory/entries.jsonl`
+- remote packages: `/local/state/freewiller/packages/`
+- gateway responses: `/local/state/freewiller/responses/`
 
 Container assets live in the repo:
 
@@ -116,7 +116,7 @@ python3 /local/bash/local_memory.py add \
   --kind decision \
   --source session \
   --tags local,llm,memory \
-  --text "Use qwen3:8b for local routing and nomic-embed-text for retrieval."
+  --text "Use qwen3:0.6b for local routing and nomic-embed-text for retrieval."
 ```
 
 Search memory:
@@ -168,7 +168,7 @@ bash /local/bash/install_local_agent_service.sh
 Rebuild the full local-agent stack on a fresh instance:
 
 ```bash
-sudo bash /local/init.sh
+sudo bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
 ```
 
 Check service health:
