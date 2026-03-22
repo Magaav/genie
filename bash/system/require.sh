@@ -38,6 +38,20 @@ set_docker() {
   fi
 }
 
+set_ollama() {
+  require "ca-certificates"
+  require "curl"
+
+  if command -v ollama >/dev/null 2>&1; then
+    echo "Ollama is already installed."
+  else
+    curl -fsSL https://ollama.com/install.sh | sh
+  fi
+
+  run_as_root systemctl enable ollama
+  run_as_root systemctl start ollama
+}
+
 case "$1" in
   base)
     install_base_packages
@@ -46,12 +60,16 @@ case "$1" in
     install_base_packages
     set_docker
     ;;
+  ollama)
+    install_base_packages
+    set_ollama
+    ;;
   all|"")
     install_base_packages
     set_docker
     ;;
   *)
-    echo "Usage: $0 {base|docker|all}"
+    echo "Usage: $0 {base|docker|ollama|all}"
     exit 1
     ;;
 esac
