@@ -63,6 +63,13 @@ def append_entry(entry: dict[str, Any]) -> None:
         handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
 
 
+def write_entries(entries: list[dict[str, Any]]) -> None:
+    ensure_store()
+    with MEMORY_DB.open("w", encoding="utf-8") as handle:
+        for entry in entries:
+            handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
+
+
 def call_local_llm(mode: str, text: str) -> str:
     result = subprocess.run(
         [str(LOCAL_LLM_SH), mode, text],
@@ -126,6 +133,40 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
 
 def next_id(entries: list[dict[str, Any]]) -> str:
     return f"mem-{len(entries) + 1:06d}"
+
+
+def compact_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": entry.get("id"),
+        "created_at": entry.get("created_at"),
+        "kind": entry.get("kind", "memory"),
+        "source": entry.get("source", "restore"),
+        "tags": entry.get("tags", []),
+        "summary": entry.get("summary", ""),
+        "facts": entry.get("facts", []),
+        "todo": entry.get("todo", []),
+        "constraints": entry.get("constraints", []),
+    }
+
+
+def normalize_import_entry(raw_entry: dict[str, Any], fallback_id: str) -> dict[str, Any]:
+    summary = raw_entry.get("summary") or truncate_text(raw_entry.get("text", ""))
+    text = raw_entry.get("text") or summary
+
+    entry = {
+        "id": raw_entry.get("id") or fallback_id,
+        "created_at": raw_entry.get("created_at") or utc_now(),
+        "kind": raw_entry.get("kind", "memory"),
+        "source": raw_entry.get("source", "restore"),
+        "tags": raw_entry.get("tags", []),
+        "summary": summary,
+        "text": text,
+        "facts": raw_entry.get("facts", []),
+        "todo": raw_entry.get("todo", []),
+        "constraints": raw_entry.get("constraints", []),
+        "embedding": raw_entry.get("embedding") or embed_text(summary),
+    }
+    return entry
 
 
 def add_entry(args: argparse.Namespace) -> int:
@@ -239,6 +280,44 @@ def list_entries(args: argparse.Namespace) -> int:
     return 0
 
 
+def export_entries(args: argparse.Namespace) -> int:
+    entries = read_entries()
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_path.open("w", encoding="utf-8") as handle:
+        for entry in entries:
+            record = compact_entry(entry) if args.compact else entry
+            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+    print(str(output_path))
+    return 0
+
+
+def import_entries(args: argparse.Namespace) -> int:
+    input_path = Path(args.input)
+    if not input_path.is_file():
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+
+    imported_entries: list[dict[str, Any]] = []
+    with input_path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            raw_entry = json.loads(line)
+            imported_entries.append(normalize_import_entry(raw_entry, f"mem-import-{len(imported_entries) + 1:06d}"))
+
+    if args.replace:
+        write_entries(imported_entries)
+    else:
+        existing_entries = read_entries()
+        write_entries(existing_entries + imported_entries)
+
+    print(len(imported_entries))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Local memory store for Freewiller groundwork.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -263,6 +342,16 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list")
     list_parser.add_argument("--limit", type=int, default=20)
     list_parser.set_defaults(func=list_entries)
+
+    export_parser = subparsers.add_parser("export")
+    export_parser.add_argument("--output", required=True)
+    export_parser.add_argument("--compact", action="store_true")
+    export_parser.set_defaults(func=export_entries)
+
+    import_parser = subparsers.add_parser("import")
+    import_parser.add_argument("--input", required=True)
+    import_parser.add_argument("--replace", action="store_true")
+    import_parser.set_defaults(func=import_entries)
 
     return parser
 

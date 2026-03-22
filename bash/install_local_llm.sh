@@ -123,6 +123,10 @@ install_aliases() {
   if ! grep -Fq "alias llm-dispatch='python3 /local/bash/local_agent.py dispatch'" "$bashrc_file" 2>/dev/null; then
     echo "alias llm-dispatch='python3 /local/bash/local_agent.py dispatch'" >> "$bashrc_file"
   fi
+
+  if ! grep -Fq "alias freewiller-backup='bash /local/bash/backup_freewiller.sh'" "$bashrc_file" 2>/dev/null; then
+    echo "alias freewiller-backup='bash /local/bash/backup_freewiller.sh'" >> "$bashrc_file"
+  fi
 }
 
 main() {
@@ -145,7 +149,7 @@ main() {
   echo "Summarize timeout: ${SUMMARIZE_TIMEOUT_SECONDS}s"
   echo "Extract timeout: ${EXTRACT_TIMEOUT_SECONDS}s"
   echo "Raw timeout: ${RAW_TIMEOUT_SECONDS}s"
-  echo "Reload your shell to use the llm-local, llm-chat, llm-embed, llm-memory, llm-agent, and llm-dispatch aliases."
+  echo "Reload your shell to use the llm-local, llm-chat, llm-embed, llm-memory, llm-agent, llm-dispatch, and freewiller-backup aliases."
 }
 
 main "$@"

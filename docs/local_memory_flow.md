@@ -10,6 +10,8 @@ Freewiller uses a guarded local utility layer before remote escalation.
   - Docker install
   - Ollama install
   - model pull
+  - compact memory restore from backup
+  - hourly and daily backup cron install
 - host runtime: Ollama on `127.0.0.1:11434`
 - containerized app layer: `local-agent`
   - HTTP boundary for orchestration and dispatch
@@ -49,6 +51,7 @@ Runtime state lives under `/local`, but outside Git tracking:
 - memory db: `/local/state/freewiller/memory/entries.jsonl`
 - remote packages: `/local/state/freewiller/packages/`
 - gateway responses: `/local/state/freewiller/responses/`
+- backup root: `/local/backups/`
 
 Container assets live in the repo:
 
@@ -68,6 +71,18 @@ Each memory entry stores:
 - `todo`
 - `constraints`
 - `embedding`
+
+Backups keep a compact recovery export that strips embeddings and raw text down to:
+
+- `id`
+- `created_at`
+- `kind`
+- `source`
+- `tags`
+- `summary`
+- `facts`
+- `todo`
+- `constraints`
 
 ## Task Flow
 
@@ -103,9 +118,11 @@ Each memory entry stores:
 - If local route/summarize/extract exceeds its timeout, fail closed.
 - Long or architecture-grade tasks should skip local deliberation.
 - Retrieval should use memory summaries and structured facts, not raw logs.
+- Respawn backups should restore memory through compact exports and regenerate embeddings locally.
 - Gateway dispatch expects an OpenClaw-compatible `POST /v1/responses` endpoint with bearer auth and an agent id.
 - The dockerized local-agent service uses host networking on Linux and talks to host Ollama through `127.0.0.1:11434`.
 - A fresh `init.sh` run should recreate both the host runtime and the containerized local-agent service.
+- A fresh `init.sh` run can also rehydrate prior memory with `RESTORE_BACKUP_PATH` or `RESTORE_BACKUP_URL`.
 
 ## Example Commands
 
@@ -169,6 +186,21 @@ Rebuild the full local-agent stack on a fresh instance:
 
 ```bash
 sudo bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
+```
+
+Rebuild a fresh instance and restore prior memory from a backup URL:
+
+```bash
+sudo RESTORE_BACKUP_URL='https://example.com/freewiller-daily-2026-03-22.tar.gz' \
+  bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
+```
+
+Create and inspect backups:
+
+```bash
+bash /local/bash/backup_freewiller.sh save hourly
+bash /local/bash/backup_freewiller.sh save daily
+bash /local/bash/backup_freewiller.sh list
 ```
 
 Check service health:

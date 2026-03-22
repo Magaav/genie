@@ -31,6 +31,7 @@ Runtime state is stored under `/local`, but outside Git tracking:
 
 - `/local/state/freewiller`
 - `/local/log/freewiller`
+- `/local/backups`
 
 These paths live under `/local` so you can inspect and evolve the running node from the same workspace, but they are still ignored by Git.
 
@@ -60,6 +61,20 @@ sudo bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/M
 
 That is the default public-repo path. No GitHub deploy key is required.
 
+To restore memory from a prior backup during spawn:
+
+```bash
+sudo RESTORE_BACKUP_URL='https://example.com/freewiller-daily-2026-03-22.tar.gz' \
+  bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
+```
+
+You can also restore from a file already present on the VM:
+
+```bash
+sudo RESTORE_BACKUP_PATH=/tmp/freewiller-daily-2026-03-22.tar.gz \
+  bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
+```
+
 ## What `init.sh` Does
 
 `init.sh` will:
@@ -70,7 +85,9 @@ That is the default public-repo path. No GitHub deploy key is required.
 4. install Docker
 5. install Ollama
 6. pull the default local models
-7. build and start the `freewiller-local-agent` container
+7. optionally restore compact memory from a prior Freewiller backup
+8. install hourly and daily backup cron jobs
+9. build and start the `freewiller-local-agent` container
 
 ## After Bootstrap
 
@@ -87,6 +104,7 @@ docker ps
 ollama list
 curl -s http://127.0.0.1:18790/health
 curl -s http://127.0.0.1:18790/policy
+bash /local/bash/backup_freewiller.sh list
 ```
 
 Expected service:
@@ -138,6 +156,41 @@ Then restart the local-agent service:
 bash /local/bash/install_local_agent_service.sh
 ```
 
+## Backups And Respawn Memory
+
+Bootstrap installs two root cron jobs by default:
+
+- hourly snapshot at `HH:05`
+- daily snapshot at `03:17 UTC`
+
+Backups are stored in:
+
+- `/local/backups/hourly`
+- `/local/backups/daily`
+
+Retention is intentionally small:
+
+- keep the last `3` hourly backups
+- keep the last `1` daily backup
+
+Each archive contains a compact recovery bundle:
+
+- `local-llm.env`
+- `freewiller-gateway.env` if present
+- compact memory export with summaries, facts, TODOs, and constraints
+- `manifest.json`
+
+On restore, embeddings are rebuilt locally from the compact memory export so a respawn can recover its prior memory state without carrying the full raw runtime tree.
+
+Manual commands:
+
+```bash
+bash /local/bash/backup_freewiller.sh save hourly
+bash /local/bash/backup_freewiller.sh save daily
+bash /local/bash/backup_freewiller.sh list
+bash /local/bash/backup_freewiller.sh restore /local/backups/daily/freewiller-daily-YYYY-MM-DD.tar.gz
+```
+
 ## Local Runtime
 
 Current default local worker:
@@ -158,6 +211,8 @@ That model choice is intentional for this class of small CPU VM. Larger local mo
 - [`bash/local_memory.py`](bash/local_memory.py)
 - [`bash/local_agent.py`](bash/local_agent.py)
 - [`bash/local_agent_http.py`](bash/local_agent_http.py)
+- [`bash/backup_freewiller.sh`](bash/backup_freewiller.sh)
+- [`bash/cronjob_freewiller.sh`](bash/cronjob_freewiller.sh)
 - [`docker-compose.local-agent.yml`](docker-compose.local-agent.yml)
 
 ## Troubleshooting

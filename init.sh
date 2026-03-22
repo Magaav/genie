@@ -23,6 +23,8 @@
 # - clones or updates the configured repository into /local
 # - runs the repo bootstrap scripts for security and base dependencies
 # - installs the local LLM runtime and models
+# - optionally restores compact memory from a prior Freewiller backup
+# - installs hourly and daily local backup cron jobs
 # - starts the containerized local-agent HTTP service
 # - leaves Docker ready, but you should open a new shell after completion so
 #   the ubuntu user picks up the docker group membership
@@ -37,6 +39,9 @@ SSH_DIR="${BOOTSTRAP_HOME}/.ssh"
 DEPLOY_KEY_PATH="${DEPLOY_KEY_PATH:-${SSH_DIR}/id_ed25519_bootstrap}"
 INSTALL_LOCAL_LLM="${INSTALL_LOCAL_LLM:-1}"
 INSTALL_LOCAL_AGENT_SERVICE="${INSTALL_LOCAL_AGENT_SERVICE:-1}"
+INSTALL_FREEWILLER_BACKUPS="${INSTALL_FREEWILLER_BACKUPS:-$INSTALL_LOCAL_LLM}"
+RESTORE_BACKUP_PATH="${RESTORE_BACKUP_PATH:-}"
+RESTORE_BACKUP_URL="${RESTORE_BACKUP_URL:-}"
 
 log() {
   printf '[init] %s\n' "$1"
@@ -128,8 +133,49 @@ sync_repo() {
   fi
 }
 
+fetch_restore_backup() {
+  if [ -n "$RESTORE_BACKUP_PATH" ] && [ -n "$RESTORE_BACKUP_URL" ]; then
+    fail "Set only one of RESTORE_BACKUP_PATH or RESTORE_BACKUP_URL"
+  fi
+
+  if [ -n "$RESTORE_BACKUP_PATH" ]; then
+    if [ ! -f "$RESTORE_BACKUP_PATH" ]; then
+      fail "RESTORE_BACKUP_PATH does not exist: $RESTORE_BACKUP_PATH"
+    fi
+    printf '%s' "$RESTORE_BACKUP_PATH"
+    return 0
+  fi
+
+  if [ -n "$RESTORE_BACKUP_URL" ]; then
+    local temp_backup
+
+    temp_backup="$(mktemp /tmp/freewiller-restore-XXXXXX.tar.gz)"
+    log "Downloading restore backup from ${RESTORE_BACKUP_URL}"
+    curl -fsSL "$RESTORE_BACKUP_URL" -o "$temp_backup"
+    printf '%s' "$temp_backup"
+  fi
+}
+
+restore_freewiller_state() {
+  local restore_source="$1"
+
+  if [ -z "$restore_source" ]; then
+    return 0
+  fi
+
+  log "Restoring Freewiller state from backup"
+  LOCAL_LLM_DIR="${REPO_DIR}/state/freewiller" \
+    SUDO_USER="$BOOTSTRAP_USER" \
+    bash "${REPO_DIR}/bash/backup_freewiller.sh" restore "$restore_source" --force
+
+  if [ -n "$RESTORE_BACKUP_URL" ] && [ -f "$restore_source" ]; then
+    rm -f "$restore_source"
+  fi
+}
+
 run_repo_bootstrap() {
   local repo_init="${REPO_DIR}/init.sh"
+  local restore_source=""
 
   if [ ! -f "${REPO_DIR}/bash/system/secure.sh" ]; then
     fail "Repository scripts not found under ${REPO_DIR}/bash"
@@ -142,6 +188,8 @@ run_repo_bootstrap() {
     "${REPO_DIR}/bash/install_local_agent_service.sh" \
     "${REPO_DIR}/bash/install_openclaw.sh" \
     "${REPO_DIR}/bash/cronjob_openclaw.sh" \
+    "${REPO_DIR}/bash/backup_freewiller.sh" \
+    "${REPO_DIR}/bash/cronjob_freewiller.sh" \
     "${REPO_DIR}/bash/local_llm.sh" \
     "${REPO_DIR}/bash/local_memory.py" \
     "${REPO_DIR}/bash/local_agent.py" \
@@ -157,6 +205,14 @@ run_repo_bootstrap() {
     log "Installing local LLM runtime"
     SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/system/require.sh" ollama
     SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/install_local_llm.sh"
+
+    restore_source="$(fetch_restore_backup)"
+    restore_freewiller_state "$restore_source"
+  fi
+
+  if [ "$INSTALL_FREEWILLER_BACKUPS" = "1" ]; then
+    log "Installing local backup cron jobs"
+    SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/cronjob_freewiller.sh"
   fi
 
   if [ "$INSTALL_LOCAL_AGENT_SERVICE" = "1" ]; then
@@ -170,6 +226,14 @@ main() {
 
   if [ "$INSTALL_LOCAL_AGENT_SERVICE" = "1" ] && [ "$INSTALL_LOCAL_LLM" != "1" ]; then
     fail "INSTALL_LOCAL_AGENT_SERVICE=1 requires INSTALL_LOCAL_LLM=1"
+  fi
+
+  if [ "$INSTALL_FREEWILLER_BACKUPS" = "1" ] && [ "$INSTALL_LOCAL_LLM" != "1" ]; then
+    fail "INSTALL_FREEWILLER_BACKUPS=1 requires INSTALL_LOCAL_LLM=1"
+  fi
+
+  if { [ -n "$RESTORE_BACKUP_PATH" ] || [ -n "$RESTORE_BACKUP_URL" ]; } && [ "$INSTALL_LOCAL_LLM" != "1" ]; then
+    fail "Restoring a backup requires INSTALL_LOCAL_LLM=1"
   fi
 
   install_bootstrap_packages
