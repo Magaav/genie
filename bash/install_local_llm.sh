@@ -65,6 +65,10 @@ install_aliases() {
   if ! grep -Fq "alias llm-embed='/local/bash/local_llm.sh embed'" "$bashrc_file" 2>/dev/null; then
     echo "alias llm-embed='/local/bash/local_llm.sh embed'" >> "$bashrc_file"
   fi
+
+  if ! grep -Fq "alias llm-memory='python3 /local/bash/local_memory.py'" "$bashrc_file" 2>/dev/null; then
+    echo "alias llm-memory='python3 /local/bash/local_memory.py'" >> "$bashrc_file"
+  fi
 }
 
 main() {
@@ -84,7 +88,7 @@ main() {
   echo "Summarize timeout: ${SUMMARIZE_TIMEOUT_SECONDS}s"
   echo "Extract timeout: ${EXTRACT_TIMEOUT_SECONDS}s"
   echo "Raw timeout: ${RAW_TIMEOUT_SECONDS}s"
-  echo "Reload your shell to use the llm-local, llm-chat, and llm-embed aliases."
+  echo "Reload your shell to use the llm-local, llm-chat, llm-embed, and llm-memory aliases."
 }
 
 main "$@"
