@@ -157,6 +157,33 @@ Then restart the local-agent service:
 bash /local/bash/install_local_agent_service.sh
 ```
 
+## OpenClaw Seed Integration
+
+Freewiller treats OpenClaw as a seed capability source, not as a permanent moving dependency.
+
+Current seed policy:
+
+- import a verified upstream snapshot once
+- pin the exact commit
+- integrate against that pinned gateway and channel surface
+- evolve Freewiller independently after that
+
+The current pinned upstream seed is recorded in:
+
+- [`docs/openclaw_seed_strategy.md`](docs/openclaw_seed_strategy.md)
+
+And the installed node records the exact imported snapshot in:
+
+- `/local/state/freewiller/openclaw-seed/seed.json`
+
+To prepare the pinned OpenClaw seed locally:
+
+```bash
+sudo SUDO_USER=ubuntu bash /local/bash/install_openclaw.sh
+```
+
+That installer checks out the pinned upstream commit in detached-head mode so a fresh bootstrap does not silently drift with upstream `main`.
+
 ## Backups And Respawn Memory
 
 Bootstrap installs two root cron jobs by default:
