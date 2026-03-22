@@ -1,0 +1,23 @@
+services:
+  local-agent:
+    build:
+      context: /local
+      dockerfile: /local/docker/local-agent/Dockerfile
+    container_name: openclaw-local-agent
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      LOCAL_LLM_DIR: /var/lib/openclaw-local-llm
+      OPENCLAW_LOG_DIR: /var/log/openclaw
+      OLLAMA_API_URL: http://127.0.0.1:11434
+      LOCAL_AGENT_HTTP_HOST: 127.0.0.1
+      LOCAL_AGENT_HTTP_PORT: 18790
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18790/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - /var/lib/openclaw-local-llm:/var/lib/openclaw-local-llm
+      - /var/log/openclaw:/var/log/openclaw

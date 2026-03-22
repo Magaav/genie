@@ -222,6 +222,16 @@ def dispatch_to_gateway(package_path: str, instructions: str | None = None) -> d
     }
 
 
+def default_gateway_instructions() -> str:
+    return textwrap.dedent(
+        """\
+        You are receiving a packaged request from a local orchestration layer.
+        Treat ROUTE, LOCAL_SUMMARY, LOCAL_EXTRACT, and RETRIEVED_MEMORY as prep material.
+        Focus on answering the TASK directly.
+        """
+    ).strip()
+
+
 def execute_orchestration(args: argparse.Namespace) -> dict[str, Any]:
     route = route_task(args.task)
     memory_context = retrieve_context(args.task, args.limit)
@@ -266,14 +276,10 @@ def orchestrate(args: argparse.Namespace) -> int:
 
 def dispatch(args: argparse.Namespace) -> int:
     output = execute_orchestration(args)
-    instructions = textwrap.dedent(
-        """\
-        You are receiving a packaged request from a local orchestration layer.
-        Treat ROUTE, LOCAL_SUMMARY, LOCAL_EXTRACT, and RETRIEVED_MEMORY as prep material.
-        Focus on answering the TASK directly.
-        """
-    ).strip()
-    gateway_result = dispatch_to_gateway(output["remote_package_path"], instructions=instructions)
+    gateway_result = dispatch_to_gateway(
+        output["remote_package_path"],
+        instructions=default_gateway_instructions(),
+    )
     output["gateway_response_text"] = gateway_result["response_text"]
     output["gateway_response_json_path"] = gateway_result["response_json_path"]
     output["gateway_response_text_path"] = gateway_result["response_text_path"]

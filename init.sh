@@ -22,6 +22,8 @@
 # - installs bootstrap packages needed to reach GitHub
 # - clones or updates git@github.com:Magaav/openclaw.git into /local
 # - runs the repo bootstrap scripts for security and base dependencies
+# - installs the local LLM runtime and models
+# - starts the containerized local-agent HTTP service
 # - leaves Docker ready, but you should open a new shell after completion so
 #   the ubuntu user picks up the docker group membership
 
@@ -33,6 +35,8 @@ BOOTSTRAP_USER="${BOOTSTRAP_USER:-${SUDO_USER:-ubuntu}}"
 BOOTSTRAP_HOME="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
 SSH_DIR="${BOOTSTRAP_HOME}/.ssh"
 DEPLOY_KEY_PATH="${DEPLOY_KEY_PATH:-${SSH_DIR}/id_ed25519_bootstrap}"
+INSTALL_LOCAL_LLM="${INSTALL_LOCAL_LLM:-1}"
+INSTALL_LOCAL_AGENT_SERVICE="${INSTALL_LOCAL_AGENT_SERVICE:-1}"
 
 log() {
   printf '[init] %s\n' "$1"
@@ -132,18 +136,40 @@ run_repo_bootstrap() {
   chmod +x "$repo_init" \
     "${REPO_DIR}/bash/system/secure.sh" \
     "${REPO_DIR}/bash/system/require.sh" \
+    "${REPO_DIR}/bash/install_local_llm.sh" \
+    "${REPO_DIR}/bash/install_local_agent_service.sh" \
     "${REPO_DIR}/bash/install_openclaw.sh" \
-    "${REPO_DIR}/bash/cronjob_openclaw.sh"
+    "${REPO_DIR}/bash/cronjob_openclaw.sh" \
+    "${REPO_DIR}/bash/local_llm.sh" \
+    "${REPO_DIR}/bash/local_memory.py" \
+    "${REPO_DIR}/bash/local_agent.py" \
+    "${REPO_DIR}/bash/local_agent_http.py"
 
   log "Running instance hardening"
   bash "${REPO_DIR}/bash/system/secure.sh"
 
   log "Running dependency installation"
   SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/system/require.sh" docker
+
+  if [ "$INSTALL_LOCAL_LLM" = "1" ]; then
+    log "Installing local LLM runtime"
+    SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/system/require.sh" ollama
+    SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/install_local_llm.sh"
+  fi
+
+  if [ "$INSTALL_LOCAL_AGENT_SERVICE" = "1" ]; then
+    log "Starting local agent container service"
+    SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/install_local_agent_service.sh"
+  fi
 }
 
 main() {
   require_root
+
+  if [ "$INSTALL_LOCAL_AGENT_SERVICE" = "1" ] && [ "$INSTALL_LOCAL_LLM" != "1" ]; then
+    fail "INSTALL_LOCAL_AGENT_SERVICE=1 requires INSTALL_LOCAL_LLM=1"
+  fi
+
   install_bootstrap_packages
   setup_github_access
   sync_repo

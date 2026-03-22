@@ -2,6 +2,19 @@
 
 This machine uses a guarded local utility layer before remote escalation.
 
+## Deployment Shape
+
+- host bootstrap: `init.sh`
+  - repo sync
+  - SSH hardening
+  - Docker install
+  - Ollama install
+  - model pull
+- host runtime: Ollama on `127.0.0.1:11434`
+- containerized app layer: `local-agent`
+  - HTTP boundary for orchestration and dispatch
+  - shared runtime state via bind mounts under `/var/lib/openclaw-local-llm`
+
 ## Roles
 
 - `bash/local_llm.sh`
@@ -20,6 +33,12 @@ This machine uses a guarded local utility layer before remote escalation.
   - memory write + retrieval
   - remote prompt package emission
   - OpenClaw Gateway dispatch via `POST /v1/responses`
+- `bash/local_agent_http.py`
+  - HTTP service wrapper
+  - `GET /health`
+  - `GET /policy`
+  - `POST /orchestrate`
+  - `POST /dispatch`
 
 ## Storage
 
@@ -30,6 +49,11 @@ Runtime state lives outside the repo:
 - memory db: `/var/lib/openclaw-local-llm/memory/entries.jsonl`
 - remote packages: `/var/lib/openclaw-local-llm/packages/`
 - gateway responses: `/var/lib/openclaw-local-llm/responses/`
+
+Container assets live in the repo:
+
+- compose: `/local/docker-compose.local-agent.yml`
+- image build: `/local/docker/local-agent/Dockerfile`
 
 Each memory entry stores:
 
@@ -71,6 +95,7 @@ Each memory entry stores:
    - packaged task block
    - compressed recent context
    - required file/tool data
+10. For automation, expose the same orchestration flow through the local agent HTTP service.
 
 ## Operational Rules
 
@@ -79,6 +104,8 @@ Each memory entry stores:
 - Long or architecture-grade tasks should skip local deliberation.
 - Retrieval should use memory summaries and structured facts, not raw logs.
 - Gateway dispatch expects OpenClaw Gateway `POST /v1/responses` with bearer auth and an agent id.
+- The dockerized local-agent service uses host networking on Linux and talks to host Ollama through `127.0.0.1:11434`.
+- A fresh `init.sh` run should recreate both the host runtime and the containerized local-agent service.
 
 ## Example Commands
 
@@ -130,4 +157,22 @@ python3 /local/bash/local_agent.py dispatch \
   --kind decision \
   --source session \
   --tags agent,memory,routing
+```
+
+Start the dockerized local-agent service:
+
+```bash
+bash /local/bash/install_local_agent_service.sh
+```
+
+Rebuild the full local-agent stack on a fresh instance:
+
+```bash
+sudo DEPLOY_KEY_B64='BASE64_OF_PRIVATE_KEY' bash /local/init.sh
+```
+
+Check service health:
+
+```bash
+curl -s http://127.0.0.1:18790/health
 ```
