@@ -4,9 +4,11 @@ set -e  # Exit on any error
 
 # Get the directory of this script (env.sh)
 ROOT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../.."
-INSTANCE_NAME="openclaw.ohana"
+INSTANCE_NAME="freewiller.ohana"
 INSTANCE_EMAIL="vic.scar@gmail.com"
-LOG_DIR="${OPENCLAW_LOG_DIR:-/var/log/openclaw}"
+FREEWILLER_STATE_DIR_DEFAULT="/var/lib/freewiller"
+LEGACY_STATE_DIR="/var/lib/openclaw-local-llm"
+LOG_DIR="${FREEWILLER_LOG_DIR:-${OPENCLAW_LOG_DIR:-/var/log/freewiller}}"
 LOG_BASH_DIR="$LOG_DIR/system/bash"
 BASH_DIR="$ROOT_DIR/bash"
 NOW=$(date '+%Y-%m-%d_%H-%M-%S')
@@ -16,6 +18,18 @@ run_as_root(){
     "$@"
   else
     sudo "$@"
+  fi
+}
+
+resolve_state_dir() {
+  if [ -n "${LOCAL_LLM_DIR:-}" ]; then
+    printf '%s' "$LOCAL_LLM_DIR"
+  elif [ -d "$FREEWILLER_STATE_DIR_DEFAULT" ]; then
+    printf '%s' "$FREEWILLER_STATE_DIR_DEFAULT"
+  elif [ -d "$LEGACY_STATE_DIR" ]; then
+    printf '%s' "$LEGACY_STATE_DIR"
+  else
+    printf '%s' "$FREEWILLER_STATE_DIR_DEFAULT"
   fi
 }
 
@@ -63,11 +77,14 @@ permissions() {
 export -f require
 export -f permissions
 export -f log
+export -f resolve_state_dir
 export ROOT_DIR
 export INSTANCE_NAME
 export INSTANCE_EMAIL
 export LOG_DIR
 export LOG_BASH_DIR
+export FREEWILLER_STATE_DIR_DEFAULT
+export LEGACY_STATE_DIR
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   case "$1" in

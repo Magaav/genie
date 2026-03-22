@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Bootstrap a fresh Oracle/Ubuntu instance from this repository.
+# Bootstrap a fresh Oracle/Ubuntu instance for the Freewiller stack.
 #
 # Prerequisites:
 # 1. Copy this script onto the new instance as /local/init.sh.
@@ -20,7 +20,7 @@
 #
 # What it does:
 # - installs bootstrap packages needed to reach GitHub
-# - clones or updates git@github.com:Magaav/openclaw.git into /local
+# - clones or updates the configured repository into /local
 # - runs the repo bootstrap scripts for security and base dependencies
 # - installs the local LLM runtime and models
 # - starts the containerized local-agent HTTP service

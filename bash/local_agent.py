@@ -13,10 +13,27 @@ from typing import Any
 
 LOCAL_LLM_SH = Path("/local/bash/local_llm.sh")
 LOCAL_MEMORY_PY = Path("/local/bash/local_memory.py")
-LOCAL_LLM_DIR = Path(os.environ.get("LOCAL_LLM_DIR", "/var/lib/openclaw-local-llm"))
+PRIMARY_GATEWAY_ENV_BASENAME = "freewiller-gateway.env"
+LEGACY_GATEWAY_ENV_BASENAME = "openclaw-gateway.env"
+
+
+def resolve_state_dir() -> Path:
+    if os.environ.get("LOCAL_LLM_DIR"):
+        return Path(os.environ["LOCAL_LLM_DIR"])
+    default_path = Path("/var/lib/freewiller")
+    legacy_path = Path("/var/lib/openclaw-local-llm")
+    if default_path.exists():
+        return default_path
+    if legacy_path.exists():
+        return legacy_path
+    return default_path
+
+
+LOCAL_LLM_DIR = resolve_state_dir()
 PACKAGES_DIR = LOCAL_LLM_DIR / "packages"
 RESPONSES_DIR = LOCAL_LLM_DIR / "responses"
-GATEWAY_ENV_FILE = LOCAL_LLM_DIR / "openclaw-gateway.env"
+PRIMARY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / PRIMARY_GATEWAY_ENV_BASENAME
+LEGACY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / LEGACY_GATEWAY_ENV_BASENAME
 
 
 def ensure_dirs() -> None:
@@ -26,21 +43,41 @@ def ensure_dirs() -> None:
 
 def load_gateway_config() -> dict[str, str]:
     config = {
-        "OPENCLAW_GATEWAY_URL": os.environ.get("OPENCLAW_GATEWAY_URL", ""),
-        "OPENCLAW_GATEWAY_TOKEN": os.environ.get("OPENCLAW_GATEWAY_TOKEN", ""),
-        "OPENCLAW_AGENT_ID": os.environ.get("OPENCLAW_AGENT_ID", "main"),
-        "OPENCLAW_MODEL": os.environ.get("OPENCLAW_MODEL", "openclaw"),
-        "OPENCLAW_USER": os.environ.get("OPENCLAW_USER", "local-agent"),
-        "OPENCLAW_MAX_OUTPUT_TOKENS": os.environ.get("OPENCLAW_MAX_OUTPUT_TOKENS", "2048"),
+        "GATEWAY_URL": os.environ.get("FREEWILLER_GATEWAY_URL", os.environ.get("OPENCLAW_GATEWAY_URL", "")),
+        "GATEWAY_TOKEN": os.environ.get("FREEWILLER_GATEWAY_TOKEN", os.environ.get("OPENCLAW_GATEWAY_TOKEN", "")),
+        "AGENT_ID": os.environ.get("FREEWILLER_AGENT_ID", os.environ.get("OPENCLAW_AGENT_ID", "main")),
+        "MODEL": os.environ.get("FREEWILLER_MODEL", os.environ.get("OPENCLAW_MODEL", "freewiller")),
+        "USER": os.environ.get("FREEWILLER_USER", os.environ.get("OPENCLAW_USER", "freewiller-local-agent")),
+        "MAX_OUTPUT_TOKENS": os.environ.get(
+            "FREEWILLER_MAX_OUTPUT_TOKENS",
+            os.environ.get("OPENCLAW_MAX_OUTPUT_TOKENS", "2048"),
+        ),
     }
 
-    if GATEWAY_ENV_FILE.exists():
-        for raw_line in GATEWAY_ENV_FILE.read_text(encoding="utf-8").splitlines():
+    for env_file in (PRIMARY_GATEWAY_ENV_FILE, LEGACY_GATEWAY_ENV_FILE):
+        if not env_file.exists():
+            continue
+
+        for raw_line in env_file.read_text(encoding="utf-8").splitlines():
             line = raw_line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
-            config[key.strip()] = value.strip()
+            key = key.strip()
+            value = value.strip()
+
+            if key in {"FREEWILLER_GATEWAY_URL", "OPENCLAW_GATEWAY_URL"}:
+                config["GATEWAY_URL"] = value
+            elif key in {"FREEWILLER_GATEWAY_TOKEN", "OPENCLAW_GATEWAY_TOKEN"}:
+                config["GATEWAY_TOKEN"] = value
+            elif key in {"FREEWILLER_AGENT_ID", "OPENCLAW_AGENT_ID"}:
+                config["AGENT_ID"] = value
+            elif key in {"FREEWILLER_MODEL", "OPENCLAW_MODEL"}:
+                config["MODEL"] = value
+            elif key in {"FREEWILLER_USER", "OPENCLAW_USER"}:
+                config["USER"] = value
+            elif key in {"FREEWILLER_MAX_OUTPUT_TOKENS", "OPENCLAW_MAX_OUTPUT_TOKENS"}:
+                config["MAX_OUTPUT_TOKENS"] = value
 
     return config
 
@@ -56,9 +93,9 @@ def route_task(task: str) -> dict[str, str]:
     reason = "No reason returned."
     for line in output.splitlines():
         if line.startswith("LABEL:"):
-            label = line.split(":", 1)[1].strip()
+            label = line.split(":", 1)[1].strip().strip('"')
         elif line.startswith("REASON:"):
-            reason = line.split(":", 1)[1].strip()
+            reason = line.split(":", 1)[1].strip().strip('"')
     return {"label": label, "reason": reason, "raw": output}
 
 
@@ -145,7 +182,7 @@ def build_remote_package(
     ).strip()
 
 
-def save_package(content: str, prefix: str = "remote-package") -> str:
+def save_package(content: str, prefix: str = "freewiller-remote-package") -> str:
     ensure_dirs()
     existing = sorted(PACKAGES_DIR.glob(f"{prefix}-*.md"))
     next_index = len(existing) + 1
@@ -179,19 +216,19 @@ def extract_response_text(response_json: dict[str, Any]) -> str:
 
 def dispatch_to_gateway(package_path: str, instructions: str | None = None) -> dict[str, Any]:
     config = load_gateway_config()
-    gateway_url = config.get("OPENCLAW_GATEWAY_URL", "").rstrip("/")
-    gateway_token = config.get("OPENCLAW_GATEWAY_TOKEN", "")
+    gateway_url = config.get("GATEWAY_URL", "").rstrip("/")
+    gateway_token = config.get("GATEWAY_TOKEN", "")
     if not gateway_url or not gateway_token:
         raise RuntimeError(
-            f"Gateway config is incomplete. Set OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN in {GATEWAY_ENV_FILE}."
+            f"Gateway config is incomplete. Set FREEWILLER_GATEWAY_URL and FREEWILLER_GATEWAY_TOKEN in {PRIMARY_GATEWAY_ENV_FILE}."
         )
 
     package_content = Path(package_path).read_text(encoding="utf-8")
     body: dict[str, Any] = {
-        "model": config.get("OPENCLAW_MODEL", "openclaw"),
+        "model": config.get("MODEL", "freewiller"),
         "input": package_content,
-        "user": config.get("OPENCLAW_USER", "local-agent"),
-        "max_output_tokens": int(config.get("OPENCLAW_MAX_OUTPUT_TOKENS", "2048")),
+        "user": config.get("USER", "freewiller-local-agent"),
+        "max_output_tokens": int(config.get("MAX_OUTPUT_TOKENS", "2048")),
         "stream": False,
     }
     if instructions:
@@ -203,7 +240,7 @@ def dispatch_to_gateway(package_path: str, instructions: str | None = None) -> d
         headers={
             "Authorization": f"Bearer {gateway_token}",
             "Content-Type": "application/json",
-            "x-openclaw-agent-id": config.get("OPENCLAW_AGENT_ID", "main"),
+            "x-openclaw-agent-id": config.get("AGENT_ID", "main"),
         },
         method="POST",
     )
@@ -211,8 +248,8 @@ def dispatch_to_gateway(package_path: str, instructions: str | None = None) -> d
         response_json = json.loads(response.read().decode("utf-8"))
 
     text_output = extract_response_text(response_json)
-    raw_json_path = save_response(json.dumps(response_json, indent=2, ensure_ascii=True) + "\n", "gateway-response", "json")
-    text_path = save_response(text_output + ("\n" if text_output else ""), "gateway-response", "md")
+    raw_json_path = save_response(json.dumps(response_json, indent=2, ensure_ascii=True) + "\n", "freewiller-gateway-response", "json")
+    text_path = save_response(text_output + ("\n" if text_output else ""), "freewiller-gateway-response", "md")
 
     return {
         "response_json": response_json,
@@ -225,7 +262,7 @@ def dispatch_to_gateway(package_path: str, instructions: str | None = None) -> d
 def default_gateway_instructions() -> str:
     return textwrap.dedent(
         """\
-        You are receiving a packaged request from a local orchestration layer.
+        You are receiving a packaged request from the Freewiller local orchestration layer.
         Treat ROUTE, LOCAL_SUMMARY, LOCAL_EXTRACT, and RETRIEVED_MEMORY as prep material.
         Focus on answering the TASK directly.
         """
@@ -288,7 +325,7 @@ def dispatch(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Local orchestration layer for routing, memory, and remote prompt packaging.")
+    parser = argparse.ArgumentParser(description="Freewiller orchestration layer for routing, memory, and remote prompt packaging.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     orchestrate_parser = subparsers.add_parser("orchestrate")

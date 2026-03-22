@@ -22,8 +22,8 @@ RUN chmod +x \
   /local/bash/local_agent.py \
   /local/bash/local_agent_http.py
 
-ENV LOCAL_LLM_DIR=/var/lib/openclaw-local-llm
-ENV OPENCLAW_LOG_DIR=/var/log/openclaw
+ENV LOCAL_LLM_DIR=/var/lib/freewiller
+ENV FREEWILLER_LOG_DIR=/var/log/freewiller
 ENV LOCAL_AGENT_HTTP_HOST=0.0.0.0
 ENV LOCAL_AGENT_HTTP_PORT=18790
 

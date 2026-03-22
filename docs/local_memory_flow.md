@@ -1,6 +1,6 @@
 # Local Memory Flow
 
-This machine uses a guarded local utility layer before remote escalation.
+Freewiller uses a guarded local utility layer before remote escalation.
 
 ## Deployment Shape
 
@@ -13,7 +13,7 @@ This machine uses a guarded local utility layer before remote escalation.
 - host runtime: Ollama on `127.0.0.1:11434`
 - containerized app layer: `local-agent`
   - HTTP boundary for orchestration and dispatch
-  - shared runtime state via bind mounts under `/var/lib/openclaw-local-llm`
+  - shared runtime state via bind mounts under `/var/lib/freewiller`
 
 ## Roles
 
@@ -32,7 +32,7 @@ This machine uses a guarded local utility layer before remote escalation.
   - optional local compression
   - memory write + retrieval
   - remote prompt package emission
-  - OpenClaw Gateway dispatch via `POST /v1/responses`
+  - Freewiller gateway dispatch via `POST /v1/responses`
 - `bash/local_agent_http.py`
   - HTTP service wrapper
   - `GET /health`
@@ -44,11 +44,11 @@ This machine uses a guarded local utility layer before remote escalation.
 
 Runtime state lives outside the repo:
 
-- config: `/var/lib/openclaw-local-llm/local-llm.env`
-- gateway config: `/var/lib/openclaw-local-llm/openclaw-gateway.env`
-- memory db: `/var/lib/openclaw-local-llm/memory/entries.jsonl`
-- remote packages: `/var/lib/openclaw-local-llm/packages/`
-- gateway responses: `/var/lib/openclaw-local-llm/responses/`
+- config: `/var/lib/freewiller/local-llm.env`
+- gateway config: `/var/lib/freewiller/freewiller-gateway.env`
+- memory db: `/var/lib/freewiller/memory/entries.jsonl`
+- remote packages: `/var/lib/freewiller/packages/`
+- gateway responses: `/var/lib/freewiller/responses/`
 
 Container assets live in the repo:
 
@@ -90,7 +90,7 @@ Each memory entry stores:
    - local summary or local skip marker
    - local extract or local skip marker
    - top retrieved memory
-8. Use `python3 /local/bash/local_agent.py dispatch ...` to send the package to OpenClaw Gateway.
+8. Use `python3 /local/bash/local_agent.py dispatch ...` to send the package to the Freewiller gateway.
 9. Send only:
    - packaged task block
    - compressed recent context
@@ -103,7 +103,7 @@ Each memory entry stores:
 - If local route/summarize/extract exceeds its timeout, fail closed.
 - Long or architecture-grade tasks should skip local deliberation.
 - Retrieval should use memory summaries and structured facts, not raw logs.
-- Gateway dispatch expects OpenClaw Gateway `POST /v1/responses` with bearer auth and an agent id.
+- Gateway dispatch expects an OpenClaw-compatible `POST /v1/responses` endpoint with bearer auth and an agent id.
 - The dockerized local-agent service uses host networking on Linux and talks to host Ollama through `127.0.0.1:11434`.
 - A fresh `init.sh` run should recreate both the host runtime and the containerized local-agent service.
 
@@ -147,7 +147,7 @@ python3 /local/bash/local_agent.py orchestrate \
   --tags agent,memory,routing
 ```
 
-Dispatch to OpenClaw Gateway:
+Dispatch to the Freewiller gateway:
 
 ```bash
 python3 /local/bash/local_agent.py dispatch \

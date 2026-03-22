@@ -13,7 +13,19 @@ from pathlib import Path
 from typing import Any
 
 
-LOCAL_LLM_DIR = Path(os.environ.get("LOCAL_LLM_DIR", "/var/lib/openclaw-local-llm"))
+def resolve_state_dir() -> Path:
+    if os.environ.get("LOCAL_LLM_DIR"):
+        return Path(os.environ["LOCAL_LLM_DIR"])
+    default_path = Path("/var/lib/freewiller")
+    legacy_path = Path("/var/lib/openclaw-local-llm")
+    if default_path.exists():
+        return default_path
+    if legacy_path.exists():
+        return legacy_path
+    return default_path
+
+
+LOCAL_LLM_DIR = resolve_state_dir()
 MEMORY_DIR = LOCAL_LLM_DIR / "memory"
 MEMORY_DB = MEMORY_DIR / "entries.jsonl"
 LOCAL_LLM_SH = Path("/local/bash/local_llm.sh")
@@ -225,7 +237,7 @@ def list_entries(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Local memory store for OpenClaw groundwork.")
+    parser = argparse.ArgumentParser(description="Local memory store for Freewiller groundwork.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     add_parser = subparsers.add_parser("add")

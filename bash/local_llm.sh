@@ -4,10 +4,10 @@ set -euo pipefail
 
 source "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/system/env.sh"
 
-LOCAL_LLM_DIR="${LOCAL_LLM_DIR:-/var/lib/openclaw-local-llm}"
+LOCAL_LLM_DIR="${LOCAL_LLM_DIR:-$(resolve_state_dir)}"
 LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-${LOCAL_LLM_DIR}/local-llm.env}"
 OLLAMA_API_URL="${OLLAMA_API_URL:-http://127.0.0.1:11434}"
-DEFAULT_MODEL="${DEFAULT_MODEL:-qwen3:8b}"
+DEFAULT_MODEL="${DEFAULT_MODEL:-qwen3:0.6b}"
 DEFAULT_EMBED_MODEL="${DEFAULT_EMBED_MODEL:-nomic-embed-text}"
 DEFAULT_ROUTE_TIMEOUT_SECONDS="${DEFAULT_ROUTE_TIMEOUT_SECONDS:-8}"
 DEFAULT_SUMMARIZE_TIMEOUT_SECONDS="${DEFAULT_SUMMARIZE_TIMEOUT_SECONDS:-8}"
@@ -97,15 +97,69 @@ EOF
     return 0
   fi
 
+  if printf '%s' "$lower_text" | rg -q 'summari[sz]e|summary|format|cleanup|clean up|extract|rewrite|rephrase|compress|shorten|bullet|bullets|tag|classify|categorize|title'; then
+    cat <<EOF
+LABEL: LOCAL
+REASON: Task matches a lightweight local utility pattern.
+EOF
+    return 0
+  fi
+
   return 1
 }
 
+format_extract_section() {
+  local section_name="$1"
+  local values="$2"
+
+  printf '%s:\n' "$section_name"
+  if [ -z "$values" ]; then
+    printf -- '- none\n'
+    return
+  fi
+
+  while IFS= read -r value; do
+    [ -n "$value" ] || continue
+    printf -- '- %s\n' "$value"
+  done <<< "$values"
+}
+
+heuristic_extract() {
+  local input_text="$1"
+  local facts
+  local todos
+  local constraints
+
+  facts="$(printf '%s' "$input_text" | grep -oiE '(fact|facts|task):[^.;]+' | sed -E 's/^[^:]+:[[:space:]]*//' || true)"
+  todos="$(printf '%s' "$input_text" | grep -oiE 'todo:[^.;]+' | sed -E 's/^[^:]+:[[:space:]]*//' || true)"
+  constraints="$(printf '%s' "$input_text" | grep -oiE 'constraint(s)?:[^.;]+' | sed -E 's/^[^:]+:[[:space:]]*//' || true)"
+
+  if [ -z "$facts$todos$constraints" ]; then
+    return 1
+  fi
+
+  format_extract_section "FACTS" "$facts"
+  format_extract_section "TODO" "$todos"
+  format_extract_section "CONSTRAINTS" "$constraints"
+  return 0
+}
+
 call_generate() {
-  local prompt="$1"
-  local timeout_seconds="$2"
+  local mode="$1"
+  local prompt="$2"
+  local timeout_seconds="$3"
   local escaped_prompt
+  local num_predict
 
   escaped_prompt="$(json_escape "$prompt")"
+
+  case "$mode" in
+    route) num_predict=32 ;;
+    summarize) num_predict=96 ;;
+    extract) num_predict=160 ;;
+    raw) num_predict=256 ;;
+    *) num_predict=128 ;;
+  esac
 
   curl -fsS --max-time "$timeout_seconds" "$OLLAMA_API_URL/api/generate" -d "{
     \"model\": \"${QWEN_MODEL}\",
@@ -115,7 +169,8 @@ call_generate() {
     \"options\": {
       \"temperature\": 0,
       \"top_p\": 0.9,
-      \"num_ctx\": 4096
+      \"num_ctx\": 2048,
+      \"num_predict\": ${num_predict}
     }
   }" | sed -n 's/.*"response":"\(.*\)","done":true.*/\1/p' \
     | sed 's/\\n/\n/g; s/\\"/"/g; s/\\\\/\\/g'
@@ -227,6 +282,34 @@ EOF
   esac
 }
 
+normalize_summary_output() {
+  local output_text="$1"
+
+  printf '%s' "$output_text" \
+    | sed -E 's/^[[:space:]]*[^:]+summary:[[:space:]]*//I' \
+    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+
+normalize_extract_output() {
+  local output_text="$1"
+
+  if printf '%s' "$output_text" | rg -q '^FACTS:'; then
+    printf '%s\n' "$output_text"
+  else
+    fallback_output extract
+  fi
+}
+
+normalize_route_output() {
+  local output_text="$1"
+
+  if printf '%s' "$output_text" | rg -q '^LABEL:'; then
+    printf '%s\n' "$output_text"
+  else
+    fallback_output route
+  fi
+}
+
 print_policy() {
   cat <<EOF
 MODEL: ${QWEN_MODEL}
@@ -264,6 +347,7 @@ main() {
   local prepared_input
   local prompt
   local timeout_seconds
+  local output_text
 
   require_ollama
 
@@ -291,12 +375,21 @@ main() {
       prepared_input="$(trim_input "$input_text" "$ROUTE_MAX_INPUT_CHARS")"
       prompt="$(build_prompt "$mode" "$prepared_input")"
       timeout_seconds="$ROUTE_TIMEOUT_SECONDS"
-      call_generate "$prompt" "$timeout_seconds" || fallback_output "$mode"
+      output_text="$(call_generate "$mode" "$prompt" "$timeout_seconds" || true)"
+      if [ -n "$output_text" ]; then
+        normalize_route_output "$output_text"
+      else
+        fallback_output "$mode"
+      fi
       ;;
     summarize|extract|raw)
       if [ -z "$input_text" ]; then
         usage
         exit 1
+      fi
+
+      if [ "$mode" = "extract" ] && heuristic_extract "$input_text"; then
+        exit 0
       fi
 
       prepared_input="$(trim_input "$input_text" "$LOCAL_MAX_INPUT_CHARS")"
@@ -308,7 +401,17 @@ main() {
         raw) timeout_seconds="$RAW_TIMEOUT_SECONDS" ;;
       esac
 
-      call_generate "$prompt" "$timeout_seconds" || fallback_output "$mode"
+      output_text="$(call_generate "$mode" "$prompt" "$timeout_seconds" || true)"
+      if [ -z "$output_text" ]; then
+        fallback_output "$mode"
+        exit 0
+      fi
+
+      case "$mode" in
+        summarize) normalize_summary_output "$output_text" ;;
+        extract) normalize_extract_output "$output_text" ;;
+        raw) printf '%s\n' "$output_text" ;;
+      esac
       ;;
     *)
       usage

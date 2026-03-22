@@ -26,7 +26,7 @@ def namespace_from_payload(payload: dict) -> argparse.Namespace:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OpenClawLocalAgent/0.1"
+    server_version = "FreewillerLocalAgent/0.1"
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
@@ -50,7 +50,7 @@ class Handler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 {
                     "status": "ok",
-                    "service": "local-agent-http",
+                    "service": "freewiller-local-agent-http",
                     "host": HOST,
                     "port": PORT,
                 },
