@@ -4,14 +4,15 @@
 #
 # Prerequisites:
 # 1. Copy this script onto the new instance as /local/init.sh.
-# 2. Run it as root with a GitHub deploy key that can read the private repo.
-# 3. Provide the key with one of:
+# 2. Run it as root.
+# 3. If you want to clone over SSH instead of the default public HTTPS URL,
+#    provide a key with one of:
 #    - DEPLOY_KEY_B64: base64-encoded private key content
 #    - DEPLOY_KEY_CONTENT: raw private key content
 #    - DEPLOY_KEY_PATH: existing private key file path on the instance
 #
 # Example:
-#   sudo DEPLOY_KEY_B64='BASE64_OF_PRIVATE_KEY' bash /local/init.sh
+#   sudo bash /local/init.sh
 #
 # After completion:
 # - open a fresh SSH/VS Code shell, or run `newgrp docker`, before using Docker
@@ -29,7 +30,7 @@
 
 set -euo pipefail
 
-REPO_SSH_URL="${REPO_SSH_URL:-git@github.com:Magaav/openclaw.git}"
+REPO_URL="${REPO_URL:-${REPO_SSH_URL:-https://github.com/Magaav/freewiller.git}}"
 REPO_DIR="${REPO_DIR:-/local}"
 BOOTSTRAP_USER="${BOOTSTRAP_USER:-${SUDO_USER:-ubuntu}}"
 BOOTSTRAP_HOME="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
@@ -60,6 +61,11 @@ install_bootstrap_packages() {
 }
 
 setup_github_access() {
+  if [[ "$REPO_URL" =~ ^https:// ]]; then
+    log "Using public HTTPS repository access for ${REPO_URL}"
+    return 0
+  fi
+
   mkdir -p "$SSH_DIR"
   chmod 700 "$SSH_DIR"
   touch "${SSH_DIR}/known_hosts"
@@ -77,7 +83,7 @@ setup_github_access() {
   elif [ -f "$DEPLOY_KEY_PATH" ]; then
     log "Using existing deploy key at $DEPLOY_KEY_PATH"
   else
-    fail "Provide DEPLOY_KEY_B64, DEPLOY_KEY_CONTENT, or an existing DEPLOY_KEY_PATH for repo access"
+    fail "Provide DEPLOY_KEY_B64, DEPLOY_KEY_CONTENT, or an existing DEPLOY_KEY_PATH for SSH repo access"
   fi
 
   cat > "${SSH_DIR}/config" <<EOF
@@ -107,7 +113,7 @@ sync_repo() {
     temp_clone_dir="${temp_parent_dir}/repo"
     chown "${BOOTSTRAP_USER}:${BOOTSTRAP_USER}" "$temp_parent_dir"
     log "Cloning repository into temporary directory ${temp_clone_dir}"
-    sudo -u "$BOOTSTRAP_USER" git clone "$REPO_SSH_URL" "$temp_clone_dir"
+    sudo -u "$BOOTSTRAP_USER" git clone "$REPO_URL" "$temp_clone_dir"
 
     if find "$REPO_DIR" -mindepth 1 -maxdepth 1 ! -samefile "$bootstrap_script" | grep -q .; then
       rm -rf "$temp_parent_dir"

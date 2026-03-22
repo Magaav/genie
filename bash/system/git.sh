@@ -99,7 +99,7 @@ EOF
   echo "  cd /local"
   echo "  git init"
   echo "  git config --global --add safe.directory /local"
-  echo "  git remote add origin git@github.com:Magaav/openclaw.git"
+  echo "  git remote add origin git@github.com:Magaav/freewiller.git"
   echo "  git fetch origin"
   echo "  git clean -fd"
   echo "  git pull origin master"
