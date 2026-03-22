@@ -13,6 +13,12 @@ This machine uses a guarded local utility layer before remote escalation.
   - persistent memory store
   - embedding-backed retrieval
   - context assembly for remote prompts
+- `bash/local_agent.py`
+  - orchestration entrypoint
+  - route first
+  - optional local compression
+  - memory write + retrieval
+  - remote prompt package emission
 
 ## Storage
 
@@ -50,9 +56,14 @@ Each memory entry stores:
    - `python3 /local/bash/local_memory.py add ...`
 6. Before remote escalation, assemble relevant context with:
    - `python3 /local/bash/local_memory.py context --query ...`
-7. Send only:
+7. Use `python3 /local/bash/local_agent.py orchestrate ...` to package:
    - current task
+   - route decision
+   - local summary or local skip marker
+   - local extract or local skip marker
    - top retrieved memory
+8. Send only:
+   - packaged task block
    - compressed recent context
    - required file/tool data
 
@@ -89,4 +100,16 @@ Build remote context:
 python3 /local/bash/local_memory.py context \
   --query "local llm routing policy and embeddings" \
   --limit 3
+```
+
+Build a remote prompt package:
+
+```bash
+python3 /local/bash/local_agent.py orchestrate \
+  --task "Design memory routing for a coding agent" \
+  --limit 3 \
+  --store \
+  --kind decision \
+  --source session \
+  --tags agent,memory,routing
 ```
