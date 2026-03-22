@@ -168,7 +168,7 @@ bash /local/bash/install_local_agent_service.sh
 Rebuild the full local-agent stack on a fresh instance:
 
 ```bash
-sudo DEPLOY_KEY_B64='BASE64_OF_PRIVATE_KEY' bash /local/init.sh
+sudo bash /local/init.sh
 ```
 
 Check service health:
