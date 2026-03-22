@@ -31,6 +31,7 @@ Runtime state is stored under `/local`, but outside Git tracking:
 
 - `/local/state/freewiller`
 - `/local/log/freewiller`
+- `/local/feed`
 - `/local/backups`
 
 These paths live under `/local` so you can inspect and evolve the running node from the same workspace, but they are still ignored by Git.
@@ -190,6 +191,32 @@ bash /local/bash/backup_freewiller.sh save daily
 bash /local/bash/backup_freewiller.sh list
 bash /local/bash/backup_freewiller.sh restore /local/backups/daily/freewiller-daily-YYYY-MM-DD.tar.gz
 ```
+
+## Recover Old Agent Progress
+
+If you have a backup from an older Freewiller node and want this instance to inherit that prior memory:
+
+1. Drop the archive into `/local/feed`.
+2. Restore it into the live state directory.
+3. Restart the local-agent service.
+4. Continue talking to the agent with the recovered memory now present on disk.
+
+Example:
+
+```bash
+mkdir -p /local/feed
+cp /path/to/freewiller-daily-YYYY-MM-DD.tar.gz /local/feed/
+bash /local/bash/backup_freewiller.sh restore /local/feed/freewiller-daily-YYYY-MM-DD.tar.gz --force
+bash /local/bash/install_local_agent_service.sh
+```
+
+After that, the prior memory is restored into:
+
+- `/local/state/freewiller/memory/entries.jsonl`
+
+So if you then ask the agent to integrate or continue from its old progress, it is already operating on the recovered memory base.
+
+If you want to do this during the very first spawn instead of after the machine is already up, use `RESTORE_BACKUP_PATH` or `RESTORE_BACKUP_URL` with `init.sh` as shown above.
 
 ## Local Runtime
 
