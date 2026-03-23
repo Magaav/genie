@@ -15,12 +15,12 @@ HEARTBEAT_CRON_MARKER="/providers/health?refresh=1"
 EVALUATE_CRON_MARKER="/providers/evaluate.*judge_mode\":\"never"
 JUDGE_CRON_MARKER="/providers/evaluate.*judge_mode\":\"targeted"
 SCORECARD_CRON_MARKER="/providers/scorecards?refresh=1"
-DISCOVERY_CRON_MARKER="/providers/discover.*provider_family\":\"nvidia"
+DISCOVERY_CRON_MARKER="/providers/discover.*provider_family\":\"all"
 HEARTBEAT_CRON_ENTRY="*/10 * * * * curl -fsS \"$GATEWAY_URL/providers/health?refresh=1\" >> $HEARTBEAT_CRON_LOG 2>&1"
 EVALUATE_CRON_ENTRY="13 */6 * * * curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"judge_mode\":\"never\"}' \"$GATEWAY_URL/providers/evaluate\" >> $EVALUATE_CRON_LOG 2>&1"
 JUDGE_CRON_ENTRY="27 4 * * * curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"judge_mode\":\"targeted\"}' \"$GATEWAY_URL/providers/evaluate\" >> $JUDGE_CRON_LOG 2>&1"
 SCORECARD_CRON_ENTRY="43 * * * * curl -fsS \"$GATEWAY_URL/providers/scorecards?refresh=1\" >> $SCORECARD_CRON_LOG 2>&1"
-DISCOVERY_CRON_ENTRY="9 2 * * * curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"provider_family\":\"nvidia\",\"sync\":true}' \"$GATEWAY_URL/providers/discover\" >> $DISCOVERY_CRON_LOG 2>&1"
+DISCOVERY_CRON_ENTRY="9 2 * * * curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"provider_family\":\"all\",\"sync\":true}' \"$GATEWAY_URL/providers/discover\" >> $DISCOVERY_CRON_LOG 2>&1"
 
 root_crontab() {
   if [ "${EUID:-$(id -u)}" -eq 0 ]; then

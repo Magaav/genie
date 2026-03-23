@@ -332,8 +332,8 @@ install_aliases() {
 }
 
 sync_provider_registry() {
-  if [ -n "${NVIDIA_API_KEY:-}" ]; then
-    python3 "$ROOT_DIR/bash/provider_router.py" discover --provider-family nvidia --sync >/tmp/genie-provider-sync.json
+  if [ -n "${NVIDIA_API_KEY:-}" ] || [ -n "${OPENROUTER_API_KEY:-}" ]; then
+    python3 "$ROOT_DIR/bash/provider_router.py" discover --provider-family all --sync >/tmp/genie-provider-sync.json
   else
     python3 "$ROOT_DIR/bash/provider_router.py" sync >/tmp/genie-provider-sync.json
   fi

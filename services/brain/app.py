@@ -158,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
 
             if self.path == "/providers/discover":
                 result = provider_router.discover_models(
-                    provider_family=str(payload.get("provider_family", "nvidia")),
+                    provider_family=str(payload.get("provider_family", "all")),
                     sync=coerce_bool(payload.get("sync", True)),
                 )
                 self._write_json(HTTPStatus.OK, result)

@@ -625,6 +625,10 @@ def nvidia_curated_model_ids() -> set[str]:
     return {str(item.get("model", "")).strip() for item in NVIDIA_MODEL_CATALOG}
 
 
+def openrouter_curated_model_ids() -> set[str]:
+    return {"openrouter/auto"}
+
+
 def is_discoverable_nvidia_text_model(model_id: str) -> bool:
     value = model_id.strip().lower()
     if not value:
@@ -679,6 +683,86 @@ def is_discoverable_nvidia_text_model(model_id: str) -> bool:
     return any(token in value for token in keep_tokens)
 
 
+def parse_optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def is_discoverable_openrouter_text_model(item: dict[str, Any]) -> bool:
+    model_id = str(item.get("model") or item.get("id", "")).strip().lower()
+    if not model_id:
+        return False
+
+    blocked_tokens = {
+        "embed",
+        "rerank",
+        "omni",
+        "vision",
+        "vlm",
+        "image",
+        "audio",
+        "video",
+        "speech",
+        "whisper",
+        "tts",
+        "transcribe",
+        "transcription",
+        "moderat",
+        "guard",
+    }
+    if any(token in model_id for token in blocked_tokens):
+        return False
+
+    architecture = item.get("architecture")
+    if isinstance(architecture, dict):
+        input_modalities = architecture.get("input_modalities")
+        output_modalities = architecture.get("output_modalities")
+        modality = str(architecture.get("modality", "")).strip().lower()
+        if isinstance(input_modalities, list) and any(str(modality_name).strip().lower() != "text" for modality_name in input_modalities):
+            return False
+        if isinstance(output_modalities, list) and any(str(modality_name).strip().lower() != "text" for modality_name in output_modalities):
+            return False
+        if any(token in modality for token in ("image", "audio", "video")):
+            return False
+
+    keep_tokens = {
+        "gpt",
+        "llama",
+        "qwen",
+        "deepseek",
+        "kimi",
+        "glm",
+        "gemma",
+        "mistral",
+        "codestral",
+        "devstral",
+        "ministral",
+        "claude",
+        "opus",
+        "sonnet",
+        "haiku",
+        "grok",
+        "gemini",
+        "command",
+        "jamba",
+        "yi-",
+        "granite",
+        "starcoder",
+        "coder",
+        "code",
+        "reason",
+        "chat",
+        "instruct",
+        "mini",
+        "nano",
+    }
+    return any(token in model_id for token in keep_tokens)
+
+
 def infer_discovered_nvidia_profile(model_id: str) -> dict[str, Any]:
     value = model_id.lower()
     interactive = True
@@ -710,7 +794,55 @@ def infer_discovered_nvidia_profile(model_id: str) -> dict[str, Any]:
     }
 
 
-def discovery_registry_entries(raw: dict[str, str], discovery_store: dict[str, Any]) -> list[dict[str, Any]]:
+def infer_discovered_openrouter_profile(item: dict[str, Any]) -> dict[str, Any]:
+    model_id = str(item.get("model") or item.get("id", "")).lower()
+    context_length = int(item.get("context_length") or 0)
+    prompt_cost_per_million = parse_optional_float(item.get("prompt_cost_per_million"))
+    completion_cost_per_million = parse_optional_float(item.get("completion_cost_per_million"))
+
+    interactive = True
+    latency_tier = "normal"
+    strength_tier = "strong"
+    allowed_tasks = sorted(CHEAP_ELIGIBLE_TASKS)
+    max_output_tokens = 4096
+    request_timeout_seconds = 120
+
+    if any(token in model_id for token in ("opus", "sonnet", "grok-4", "gpt-5", "reason", "405b", "397b", "120b", "123b", "70b", "90b")):
+        interactive = False
+        latency_tier = "slow"
+        strength_tier = "powerful"
+        allowed_tasks = sorted(SLOW_POWERFUL_TASKS)
+        max_output_tokens = 8192
+        request_timeout_seconds = 240
+    elif any(token in model_id for token in ("mini", "nano", "3b", "7b", "8b")):
+        strength_tier = "standard"
+    elif any(token in model_id for token in ("32b", "34b", "27b", "22b", "17b", "14b")):
+        strength_tier = "powerful"
+
+    if context_length >= 500_000 and latency_tier != "slow":
+        latency_tier = "slow"
+        interactive = False
+        allowed_tasks = sorted(SLOW_POWERFUL_TASKS)
+        max_output_tokens = max(max_output_tokens, 8192)
+        request_timeout_seconds = max(request_timeout_seconds, 180)
+
+    free_candidate = bool(item.get("free_candidate"))
+    if free_candidate and interactive:
+        request_timeout_seconds = min(request_timeout_seconds, 90)
+
+    return {
+        "interactive": interactive,
+        "latency_tier": latency_tier,
+        "strength_tier": strength_tier,
+        "allowed_tasks": allowed_tasks,
+        "max_output_tokens": max_output_tokens,
+        "request_timeout_seconds": request_timeout_seconds,
+        "cost_input_per_million": prompt_cost_per_million,
+        "cost_output_per_million": completion_cost_per_million,
+    }
+
+
+def discovery_registry_entries_nvidia(raw: dict[str, str], discovery_store: dict[str, Any]) -> list[dict[str, Any]]:
     api_key_env = first_present_key(raw, "NVIDIA_API_KEY", "FREEWILLER_NVIDIA_API_KEY", "NGC_API_KEY", "NVIDIA_KIMI_K25_API_KEY")
     if not api_key_env:
         return []
@@ -764,11 +896,75 @@ def discovery_registry_entries(raw: dict[str, str], discovery_store: dict[str, A
     return entries
 
 
+def discovery_registry_entries_openrouter(raw: dict[str, str], discovery_store: dict[str, Any]) -> list[dict[str, Any]]:
+    api_key_env = first_present_key(raw, "FREEWILLER_OPENROUTER_API_KEY", "OPENROUTER_API_KEY")
+    if not api_key_env:
+        return []
+
+    provider_store = discovery_store.get("providers", {}).get("openrouter", {})
+    candidates = provider_store.get("candidate_entries", [])
+    if not isinstance(candidates, list):
+        return []
+
+    api_base_url = env_get(raw, "FREEWILLER_OPENROUTER_API_BASE_URL", "OPENROUTER_API_BASE_URL", default="https://openrouter.ai/api/v1")
+    api_mode = env_get(raw, "FREEWILLER_OPENROUTER_API_MODE", "OPENROUTER_API_MODE", default="chat")
+    entries: list[dict[str, Any]] = []
+    curated_model_ids = openrouter_curated_model_ids()
+
+    sorted_candidates = sorted(
+        (candidate for candidate in candidates if isinstance(candidate, dict)),
+        key=lambda candidate: (
+            0 if candidate.get("free_candidate") else 1,
+            parse_optional_float(candidate.get("prompt_cost_per_million")) or 999999.0,
+            parse_optional_float(candidate.get("completion_cost_per_million")) or 999999.0,
+            str(candidate.get("model", "")),
+        ),
+    )
+
+    for candidate in sorted_candidates[:DISCOVERY_IMPORT_LIMIT]:
+        model = str(candidate.get("model", "")).strip()
+        if not model or model in curated_model_ids:
+            continue
+        profile = infer_discovered_openrouter_profile(candidate)
+        label_suffix = " (Free)" if candidate.get("free_candidate") else ""
+        entries.append(
+            {
+                "id": sanitize_provider_name(f"openrouter_auto_{model}"),
+                "label": f"OpenRouter Auto {candidate.get('name') or model}{label_suffix}",
+                "enabled": False,
+                "provider_family": "openrouter",
+                "kind": "openai_compatible",
+                "api_key_env": api_key_env,
+                "api_base_url": api_base_url,
+                "model": model,
+                "api_mode": api_mode,
+                "extra_body": {},
+                "trust_tier": "trusted_external",
+                "latency_tier": profile["latency_tier"],
+                "strength_tier": profile["strength_tier"],
+                "interactive": profile["interactive"],
+                "allowed_privacy": ["public", "internal"],
+                "allowed_tasks": profile["allowed_tasks"],
+                "max_output_tokens": profile["max_output_tokens"],
+                "request_timeout_seconds": profile["request_timeout_seconds"],
+                "cost_input_per_million": profile["cost_input_per_million"],
+                "cost_output_per_million": profile["cost_output_per_million"],
+                "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+                "brain_router_state": "benchmark_pending",
+                "discovered_at": str(candidate.get("discovered_at", provider_store.get("updated_at", ""))),
+                "discovery_source": "openrouter:/models",
+                "source_owned_by": str(candidate.get("owned_by", "")),
+            }
+        )
+    return entries
+
+
 def default_registry_entries(raw: dict[str, str]) -> list[dict[str, Any]]:
     discovery_store = load_discovery_store()
     entries: list[dict[str, Any]] = [default_registry_entry_frontier(raw)]
     nvidia_entries = default_registry_entries_nvidia(raw)
-    discovered_nvidia_entries = discovery_registry_entries(raw, discovery_store)
+    discovered_nvidia_entries = discovery_registry_entries_nvidia(raw, discovery_store)
+    discovered_openrouter_entries = discovery_registry_entries_openrouter(raw, discovery_store)
     openrouter_entry = default_registry_entry_openrouter(raw)
     legacy_cheap_entry = default_registry_entry_legacy(raw, public_only=False)
     legacy_public_entry = default_registry_entry_legacy(raw, public_only=True)
@@ -780,6 +976,7 @@ def default_registry_entries(raw: dict[str, str]) -> list[dict[str, Any]]:
 
     entries.extend(nvidia_entries)
     entries.extend(discovered_nvidia_entries)
+    entries.extend(discovered_openrouter_entries)
     for candidate in (openrouter_entry, legacy_cheap_entry, legacy_public_entry):
         if candidate:
             entries.append(candidate)
@@ -907,13 +1104,66 @@ def fetch_nvidia_models(raw: dict[str, str]) -> list[dict[str, Any]]:
     return normalized
 
 
+def fetch_openrouter_models(raw: dict[str, str]) -> list[dict[str, Any]]:
+    api_key = env_get(raw, "FREEWILLER_OPENROUTER_API_KEY", "OPENROUTER_API_KEY")
+    if not api_key:
+        return []
+    api_base_url = env_get(raw, "FREEWILLER_OPENROUTER_API_BASE_URL", "OPENROUTER_API_BASE_URL", default="https://openrouter.ai/api/v1").rstrip("/")
+
+    import urllib.request
+
+    request = urllib.request.Request(
+        f"{api_base_url}/models",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if isinstance(payload, dict):
+        models = payload.get("data", [])
+    else:
+        models = payload
+    if not isinstance(models, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("id", "")).strip()
+        if not model_id:
+            continue
+        pricing = item.get("pricing", {}) if isinstance(item.get("pricing"), dict) else {}
+        prompt_rate = parse_optional_float(pricing.get("prompt"))
+        completion_rate = parse_optional_float(pricing.get("completion"))
+        input_cache_read = parse_optional_float(pricing.get("input_cache_read"))
+        free_candidate = (prompt_rate == 0.0 and completion_rate == 0.0) or model_id.endswith(":free")
+        normalized_item = {
+            "model": model_id,
+            "name": str(item.get("name", "")).strip(),
+            "owned_by": model_id.split("/", 1)[0] if "/" in model_id else "",
+            "canonical_slug": str(item.get("canonical_slug", "")).strip(),
+            "created": item.get("created"),
+            "context_length": item.get("context_length"),
+            "architecture": item.get("architecture"),
+            "prompt_cost_per_million": (prompt_rate * 1_000_000) if prompt_rate is not None else None,
+            "completion_cost_per_million": (completion_rate * 1_000_000) if completion_rate is not None else None,
+            "cache_read_cost_per_million": (input_cache_read * 1_000_000) if input_cache_read is not None else None,
+            "free_candidate": free_candidate,
+            "discoverable_text_candidate": False,
+            "discovered_at": utc_now(),
+        }
+        normalized_item["discoverable_text_candidate"] = is_discoverable_openrouter_text_model(normalized_item)
+        normalized.append(normalized_item)
+    return normalized
+
+
 def discover_models(provider_family: str = "", sync: bool = False) -> dict[str, Any]:
-    family = sanitize_provider_name(provider_family or "nvidia") or "nvidia"
+    family = sanitize_provider_name(provider_family or "all") or "all"
     raw = load_raw_env()
     store = load_discovery_store()
     summaries: dict[str, Any] = {}
 
-    if family in {"", "nvidia"}:
+    if family in {"", "all", "nvidia"}:
         models = fetch_nvidia_models(raw)
         candidate_entries = [item for item in models if item.get("discoverable_text_candidate")]
         provider_payload = {
@@ -926,6 +1176,23 @@ def discover_models(provider_family: str = "", sync: bool = False) -> dict[str, 
         }
         store.setdefault("providers", {})["nvidia"] = provider_payload
         summaries["nvidia"] = {
+            "total_models": len(models),
+            "candidate_models": len(candidate_entries),
+        }
+
+    if family in {"", "all", "openrouter"}:
+        models = fetch_openrouter_models(raw)
+        candidate_entries = [item for item in models if item.get("discoverable_text_candidate")]
+        provider_payload = {
+            "provider_family": "openrouter",
+            "total_models": len(models),
+            "candidate_models": len(candidate_entries),
+            "models": models,
+            "candidate_entries": candidate_entries,
+            "updated_at": utc_now(),
+        }
+        store.setdefault("providers", {})["openrouter"] = provider_payload
+        summaries["openrouter"] = {
             "total_models": len(models),
             "candidate_models": len(candidate_entries),
         }
@@ -2307,7 +2574,7 @@ def build_parser() -> argparse.ArgumentParser:
     discovery_parser.set_defaults(func=discovery_command)
 
     discover_parser = subparsers.add_parser("discover")
-    discover_parser.add_argument("--provider-family", default="nvidia")
+    discover_parser.add_argument("--provider-family", default="all")
     discover_parser.add_argument("--sync", action="store_true")
     discover_parser.set_defaults(func=discover_command)
 
