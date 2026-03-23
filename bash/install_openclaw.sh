@@ -13,8 +13,8 @@ OPENCLAW_NODE_GID="${OPENCLAW_NODE_GID:-1000}"
 OPENCLAW_REPO_URL="${OPENCLAW_REPO_URL:-https://github.com/openclaw/openclaw.git}"
 OPENCLAW_PINNED_COMMIT="${OPENCLAW_PINNED_COMMIT:-52a0aa06723fbad5e7c2b0fc07fe04eef433d1c7}"
 OPENCLAW_RUNTIME_IMAGE="${OPENCLAW_RUNTIME_IMAGE:-ghcr.io/openclaw/openclaw@sha256:97f106719e545adf49b127ef4e58019beaf7e99702a003727d3d45ccbbb748c0}"
-OPENCLAW_REPO_DIR="${OPENCLAW_REPO_DIR:-/local/openclaw}"
-OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-/local/.openclaw}"
+OPENCLAW_REPO_DIR="${OPENCLAW_REPO_DIR:-/local/state/genie/frontier/openclaw/repo}"
+OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-/local/state/genie/frontier/openclaw/runtime}"
 OPENCLAW_WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-${OPENCLAW_CONFIG_DIR}/workspace}"
 OPENCLAW_CONTAINER_WORKSPACE_DIR="${OPENCLAW_CONTAINER_WORKSPACE_DIR:-/home/node/.openclaw/workspace}"
 OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
@@ -23,8 +23,9 @@ OPENCLAW_GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
 OPENCLAW_RUN_ONBOARD="${OPENCLAW_RUN_ONBOARD:-0}"
 OPENCLAW_WAIT_URL="${OPENCLAW_WAIT_URL:-http://127.0.0.1:${OPENCLAW_GATEWAY_PORT}/healthz}"
 OPENCLAW_ENV_FILE="${OPENCLAW_REPO_DIR}/.env"
-FREEWILLER_GATEWAY_ENV_FILE="${FREEWILLER_GATEWAY_ENV_FILE:-$(resolve_state_dir)/freewiller-gateway.env}"
-OPENCLAW_SEED_METADATA_DIR="${OPENCLAW_SEED_METADATA_DIR:-$(resolve_state_dir)/openclaw-seed}"
+GENIE_GATEWAY_ENV_FILE="${GENIE_GATEWAY_ENV_FILE:-$(resolve_state_dir)/genie-gateway.env}"
+FREEWILLER_GATEWAY_ENV_FILE="${FREEWILLER_GATEWAY_ENV_FILE:-$GENIE_GATEWAY_ENV_FILE}"
+OPENCLAW_SEED_METADATA_DIR="${OPENCLAW_SEED_METADATA_DIR:-$(resolve_state_dir)/frontier/openclaw/seed}"
 OPENCLAW_SEED_METADATA_FILE="${OPENCLAW_SEED_METADATA_DIR}/seed.json"
 OPENCLAW_COMPOSE_OVERRIDE_FILE="${OPENCLAW_COMPOSE_OVERRIDE_FILE:-${OPENCLAW_SEED_METADATA_DIR}/docker-compose.override.yml}"
 OPENCLAW_EXTERNAL_AUTH_DIR="${OPENCLAW_EXTERNAL_AUTH_DIR:-${OPENCLAW_CONFIG_DIR}/external-auth}"
@@ -33,9 +34,9 @@ OPENCLAW_CODEX_AUTH_PATH="${OPENCLAW_CODEX_AUTH_PATH:-${ACTUAL_HOME}/.codex/auth
 OPENCLAW_CODEX_HOME="${OPENCLAW_CODEX_HOME:-/home/node/.openclaw/external-auth/codex}"
 OPENCLAW_DEFAULT_MODEL="${OPENCLAW_DEFAULT_MODEL:-openai-codex/gpt-5.4}"
 OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-$(openssl rand -hex 32)}"
-FREEWILLER_OPENCLAW_HOOKS_SRC_DIR="${FREEWILLER_OPENCLAW_HOOKS_SRC_DIR:-/local/openclaw-hooks}"
+FREEWILLER_OPENCLAW_HOOKS_SRC_DIR="${FREEWILLER_OPENCLAW_HOOKS_SRC_DIR:-/local/config/frontier/openclaw-hooks}"
 FREEWILLER_OPENCLAW_HOOKS_WORKSPACE_DIR="${FREEWILLER_OPENCLAW_HOOKS_WORKSPACE_DIR:-${OPENCLAW_WORKSPACE_DIR}/hooks}"
-FREEWILLER_MEMORY_QUEUE_FILE="${FREEWILLER_MEMORY_QUEUE_FILE:-${OPENCLAW_CONTAINER_WORKSPACE_DIR}/freewiller-ingest/openclaw-memory-queue.jsonl}"
+FREEWILLER_MEMORY_QUEUE_FILE="${FREEWILLER_MEMORY_QUEUE_FILE:-${OPENCLAW_CONTAINER_WORKSPACE_DIR}/genie-ingest/openclaw-memory-queue.jsonl}"
 FREEWILLER_MEMORY_BRIDGE_MAX_TEXT_CHARS="${FREEWILLER_MEMORY_BRIDGE_MAX_TEXT_CHARS:-3500}"
 OPENCLAW_CODEX_AUTH_SYNCED=0
 
@@ -49,7 +50,7 @@ log_step() {
 }
 
 openclaw_compose() {
-  docker compose -f "$OPENCLAW_REPO_DIR/docker-compose.yml" -f "$OPENCLAW_COMPOSE_OVERRIDE_FILE" "$@"
+  docker compose --project-name "${OPENCLAW_COMPOSE_PROJECT_NAME:-genie-frontier}" -f "$OPENCLAW_REPO_DIR/docker-compose.yml" -f "$OPENCLAW_COMPOSE_OVERRIDE_FILE" "$@"
 }
 
 ensure_docker() {
@@ -171,7 +172,7 @@ configure_openclaw_gateway() {
   run_openclaw_node config set gateway.http.endpoints.responses.enabled true >/dev/null
   run_openclaw_node config set gateway.http.endpoints.chatCompletions.enabled true >/dev/null
   run_openclaw_node config set hooks.internal.enabled true --strict-json >/dev/null
-  run_openclaw_node config set hooks.internal.entries.freewiller-memory-bridge.enabled true --strict-json >/dev/null
+  run_openclaw_node config set hooks.internal.entries.genie-memory-bridge.enabled true --strict-json >/dev/null
 
   if [ "$OPENCLAW_CODEX_AUTH_SYNCED" = "1" ]; then
     run_openclaw_node config set agents.defaults.model.primary "$OPENCLAW_DEFAULT_MODEL" >/dev/null
@@ -239,7 +240,7 @@ FREEWILLER_GATEWAY_TOKEN=$OPENCLAW_GATEWAY_TOKEN
 FREEWILLER_AGENT_ID=main
 FREEWILLER_MODEL=${FREEWILLER_MODEL:-openclaw:main}
 FREEWILLER_GATEWAY_API=${FREEWILLER_GATEWAY_API:-auto}
-FREEWILLER_USER=${FREEWILLER_USER:-freewiller-local-agent}
+FREEWILLER_USER=${FREEWILLER_USER:-genie-ethics}
 FREEWILLER_MAX_OUTPUT_TOKENS=${FREEWILLER_MAX_OUTPUT_TOKENS:-2048}
 EOF
 
@@ -248,7 +249,7 @@ EOF
 }
 
 install_aliases() {
-  local alias_line="alias openclaw='docker compose -f /local/openclaw/docker-compose.yml -f $(resolve_state_dir)/openclaw-seed/docker-compose.override.yml exec openclaw-gateway node dist/index.js'"
+  local alias_line="alias genie-frontier='docker compose --project-name genie-frontier -f /local/state/genie/frontier/openclaw/repo/docker-compose.yml -f $(resolve_state_dir)/frontier/openclaw/seed/docker-compose.override.yml exec openclaw-gateway node dist/index.js'"
   if ! grep -Fq "$alias_line" "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
     echo "$alias_line" >> "$ACTUAL_HOME/.bashrc"
   fi
@@ -273,7 +274,7 @@ main() {
   log_step "Syncing Codex auth into OpenClaw seed state when available"
   sync_codex_auth
 
-  log_step "Syncing Freewiller-managed OpenClaw hooks into workspace"
+  log_step "Syncing Genie-managed OpenClaw hooks into workspace"
   sync_freewiller_openclaw_hooks
 
   log_step "Writing OpenClaw compose override"
@@ -295,7 +296,7 @@ main() {
   start_gateway
   wait_for_gateway
 
-  log_step "Recording seed metadata and wiring Freewiller gateway"
+  log_step "Recording seed metadata and wiring Genie frontier gateway"
   write_seed_metadata
   wire_freewiller_gateway
   install_aliases
@@ -313,7 +314,7 @@ main() {
   echo "Gateway token: $OPENCLAW_GATEWAY_TOKEN"
   echo "Compose override: $OPENCLAW_COMPOSE_OVERRIDE_FILE"
   echo "Seed metadata: $OPENCLAW_SEED_METADATA_FILE"
-  echo "Freewiller gateway config: $FREEWILLER_GATEWAY_ENV_FILE"
+  echo "Genie frontier gateway config: $FREEWILLER_GATEWAY_ENV_FILE"
   echo "Set OPENCLAW_RUN_ONBOARD=1 if you want the interactive OpenClaw onboarding flow."
 }
 

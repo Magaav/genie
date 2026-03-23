@@ -53,7 +53,7 @@ main() {
   upsert_cron_entry "$SCORECARD_CRON_ENTRY" "$SCORECARD_CRON_MARKER"
   upsert_cron_entry "$DISCOVERY_CRON_ENTRY" "$DISCOVERY_CRON_MARKER"
 
-  echo "Installed Freewiller provider routing cron jobs."
+  echo "Installed Genie provider routing cron jobs."
   echo "Heartbeat: $HEARTBEAT_CRON_ENTRY"
   echo "Evaluate:  $EVALUATE_CRON_ENTRY"
   echo "Judge:     $JUDGE_CRON_ENTRY"

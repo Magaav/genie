@@ -9,11 +9,11 @@ It is designed to respawn onto a fresh Ubuntu VM, recover its local state, and k
 - `memory`
 - `brain`
 
-The repo name and state path still use `freewiller` for compatibility:
+Current runtime paths:
 
-- repo: `Magaav/freewiller`
-- state: `/local/state/freewiller`
-- logs: `/local/log/freewiller`
+- repo slug: `Magaav/freewiller`
+- state: `/local/state/genie`
+- logs: `/local/log/genie`
 
 The runtime identity is now `Genie`.
 
@@ -118,8 +118,8 @@ It owns:
 
 Runtime state lives under `/local` but is ignored by Git:
 
-- `/local/state/freewiller`
-- `/local/log/freewiller`
+- `/local/state/genie`
+- `/local/log/genie`
 - `/local/backups`
 - `/local/feed`
 
@@ -133,29 +133,29 @@ Backups include that file, so bot tokens and provider keys can respawn with the 
 
 Canonical memory lives in:
 
-- journal: `/local/state/freewiller/memory/journal.jsonl`
-- semantic DB: `/local/state/freewiller/memory/memory.sqlite3`
-- compatibility export: `/local/state/freewiller/memory/entries.jsonl`
+- journal: `/local/state/genie/memory/journal.jsonl`
+- semantic DB: `/local/state/genie/memory/memory.sqlite3`
+- compatibility export: `/local/state/genie/memory/entries.jsonl`
 
 Native projections live in:
 
-- `/local/state/freewiller/projections/IDENTITY.md`
-- `/local/state/freewiller/projections/USER.md`
-- `/local/state/freewiller/projections/MEMORY.md`
-- `/local/state/freewiller/projections/BOUNDARIES.md`
-- `/local/state/freewiller/projections/PROJECT_STATE.md`
+- `/local/state/genie/projections/IDENTITY.md`
+- `/local/state/genie/projections/USER.md`
+- `/local/state/genie/projections/MEMORY.md`
+- `/local/state/genie/projections/BOUNDARIES.md`
+- `/local/state/genie/projections/PROJECT_STATE.md`
 
 ## Provider State
 
 Brain Router state lives in:
 
-- `/local/state/freewiller/provider-routing.env`
-- `/local/state/freewiller/provider-registry.json`
-- `/local/state/freewiller/telemetry/provider-health.json`
-- `/local/state/freewiller/telemetry/provider-benchmarks.json`
-- `/local/state/freewiller/telemetry/provider-scorecards.json`
-- `/local/state/freewiller/telemetry/provider-discovery.json`
-- `/local/state/freewiller/telemetry/provider-usage.jsonl`
+- `/local/state/genie/provider-routing.env`
+- `/local/state/genie/provider-registry.json`
+- `/local/state/genie/telemetry/provider-health.json`
+- `/local/state/genie/telemetry/provider-benchmarks.json`
+- `/local/state/genie/telemetry/provider-scorecards.json`
+- `/local/state/genie/telemetry/provider-discovery.json`
+- `/local/state/genie/telemetry/provider-usage.jsonl`
 
 Tracked templates and benchmark corpus live in:
 
@@ -300,7 +300,7 @@ It uses long polling and reads:
 
 Allowlist state lives in:
 
-- `/local/state/freewiller/gateway/telegram-allowlist.json`
+- `/local/state/genie/gateway/telegram-allowlist.json`
 
 ## Brain Router
 
@@ -317,9 +317,9 @@ It currently:
 
 Main docs:
 
-- [`docs/freewiller_brain_router.md`](docs/freewiller_brain_router.md)
-- [`docs/freewiller_security_architecture.md`](docs/freewiller_security_architecture.md)
-- [`docs/freewiller_roadmap.md`](docs/freewiller_roadmap.md)
+- [`docs/genie_brain_router.md`](docs/genie_brain_router.md)
+- [`docs/genie_security_architecture.md`](docs/genie_security_architecture.md)
+- [`docs/genie_roadmap.md`](docs/genie_roadmap.md)
 
 ## Frontier Adapter
 
@@ -328,7 +328,7 @@ Genie no longer uses OpenClaw as its native runtime shape.
 But the current frontier adapter can still point at an OpenClaw-compatible gateway if one is configured in:
 
 ```bash
-/local/state/freewiller/freewiller-gateway.env
+/local/state/genie/genie-gateway.env
 ```
 
 That keeps the strongest GPT-class lane available without making OpenClaw part of the native four-service node.
@@ -358,10 +358,10 @@ Backups include:
 Manual commands:
 
 ```bash
-bash /local/bash/backup_freewiller.sh save hourly
-bash /local/bash/backup_freewiller.sh save daily
-bash /local/bash/backup_freewiller.sh list
-bash /local/bash/backup_freewiller.sh restore /local/backups/daily/<archive>.tar.gz --force
+bash /local/bash/backup_genie.sh save hourly
+bash /local/bash/backup_genie.sh save daily
+bash /local/bash/backup_genie.sh list
+bash /local/bash/backup_genie.sh restore /local/backups/daily/<archive>.tar.gz --force
 ```
 
 To inherit an older node’s progress:
@@ -369,7 +369,7 @@ To inherit an older node’s progress:
 ```bash
 mkdir -p /local/feed
 cp /path/to/backup.tar.gz /local/feed/
-bash /local/bash/backup_freewiller.sh restore /local/feed/backup.tar.gz --force
+bash /local/bash/backup_genie.sh restore /local/feed/backup.tar.gz --force
 bash /local/bash/install_local_agent_service.sh
 ```
 
@@ -387,10 +387,10 @@ Untrusted attempts to rewrite identity or policy are journaled for audit but blo
 
 ## Compatibility Notes
 
-The repo and state path still use `freewiller` names for continuity:
+The runtime identity, service names, state path, and native architecture are now `Genie`.
 
-- `/local/state/freewiller`
-- `/local/log/freewiller`
-- several docs and filenames
+The remaining compatibility holdout is the GitHub repo slug:
 
-The runtime identity, service names, and native architecture are now `Genie`.
+- `Magaav/freewiller`
+
+That can be renamed separately later without affecting the live node layout.

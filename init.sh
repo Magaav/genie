@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Bootstrap a fresh Oracle/Ubuntu instance for the Freewiller stack.
+# Bootstrap a fresh Oracle/Ubuntu instance for the Genie stack.
 #
 # Prerequisites:
 # 1. Run it as root.
@@ -23,7 +23,7 @@
 # - clones or updates the configured repository into /local
 # - runs the repo bootstrap scripts for security and base dependencies
 # - installs the local LLM runtime and models
-# - optionally restores compact memory from a prior Freewiller backup
+# - optionally restores compact memory from a prior Genie backup
 # - installs hourly and daily local backup cron jobs
 # - starts the containerized Genie native node stack
 # - leaves Docker ready, but you should open a new shell after completion so
@@ -39,7 +39,7 @@ SSH_DIR="${BOOTSTRAP_HOME}/.ssh"
 DEPLOY_KEY_PATH="${DEPLOY_KEY_PATH:-${SSH_DIR}/id_ed25519_bootstrap}"
 INSTALL_LOCAL_LLM="${INSTALL_LOCAL_LLM:-1}"
 INSTALL_LOCAL_AGENT_SERVICE="${INSTALL_LOCAL_AGENT_SERVICE:-1}"
-INSTALL_FREEWILLER_BACKUPS="${INSTALL_FREEWILLER_BACKUPS:-$INSTALL_LOCAL_LLM}"
+INSTALL_GENIE_BACKUPS="${INSTALL_GENIE_BACKUPS:-$INSTALL_LOCAL_LLM}"
 RESTORE_BACKUP_PATH="${RESTORE_BACKUP_PATH:-}"
 RESTORE_BACKUP_URL="${RESTORE_BACKUP_URL:-}"
 
@@ -149,24 +149,24 @@ fetch_restore_backup() {
   if [ -n "$RESTORE_BACKUP_URL" ]; then
     local temp_backup
 
-    temp_backup="$(mktemp /tmp/freewiller-restore-XXXXXX.tar.gz)"
+    temp_backup="$(mktemp /tmp/genie-restore-XXXXXX.tar.gz)"
     log "Downloading restore backup from ${RESTORE_BACKUP_URL}"
     curl -fsSL "$RESTORE_BACKUP_URL" -o "$temp_backup"
     printf '%s' "$temp_backup"
   fi
 }
 
-restore_freewiller_state() {
+restore_genie_state() {
   local restore_source="$1"
 
   if [ -z "$restore_source" ]; then
     return 0
   fi
 
-  log "Restoring Freewiller state from backup"
-  LOCAL_LLM_DIR="${REPO_DIR}/state/freewiller" \
+  log "Restoring Genie state from backup"
+  LOCAL_LLM_DIR="${REPO_DIR}/state/genie" \
     SUDO_USER="$BOOTSTRAP_USER" \
-    bash "${REPO_DIR}/bash/backup_freewiller.sh" restore "$restore_source" --force
+    bash "${REPO_DIR}/bash/backup_genie.sh" restore "$restore_source" --force
 
   if [ -n "$RESTORE_BACKUP_URL" ] && [ -f "$restore_source" ]; then
     rm -f "$restore_source"
@@ -186,8 +186,8 @@ run_repo_bootstrap() {
     "${REPO_DIR}/bash/system/require.sh" \
     "${REPO_DIR}/bash/install_local_llm.sh" \
     "${REPO_DIR}/bash/install_local_agent_service.sh" \
-    "${REPO_DIR}/bash/backup_freewiller.sh" \
-    "${REPO_DIR}/bash/cronjob_freewiller.sh" \
+    "${REPO_DIR}/bash/backup_genie.sh" \
+    "${REPO_DIR}/bash/cronjob_genie.sh" \
     "${REPO_DIR}/bash/cronjob_provider_router.sh" \
     "${REPO_DIR}/bash/local_llm.sh" \
     "${REPO_DIR}/bash/local_memory.py" \
@@ -206,12 +206,12 @@ run_repo_bootstrap() {
     SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/install_local_llm.sh"
 
     restore_source="$(fetch_restore_backup)"
-    restore_freewiller_state "$restore_source"
+    restore_genie_state "$restore_source"
   fi
 
-  if [ "$INSTALL_FREEWILLER_BACKUPS" = "1" ]; then
+  if [ "$INSTALL_GENIE_BACKUPS" = "1" ]; then
     log "Installing local backup cron jobs"
-    SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/cronjob_freewiller.sh"
+    SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/cronjob_genie.sh"
   fi
 
   if [ "$INSTALL_LOCAL_LLM" = "1" ]; then
@@ -232,8 +232,8 @@ main() {
     fail "INSTALL_LOCAL_AGENT_SERVICE=1 requires INSTALL_LOCAL_LLM=1"
   fi
 
-  if [ "$INSTALL_FREEWILLER_BACKUPS" = "1" ] && [ "$INSTALL_LOCAL_LLM" != "1" ]; then
-    fail "INSTALL_FREEWILLER_BACKUPS=1 requires INSTALL_LOCAL_LLM=1"
+  if [ "$INSTALL_GENIE_BACKUPS" = "1" ] && [ "$INSTALL_LOCAL_LLM" != "1" ]; then
+    fail "INSTALL_GENIE_BACKUPS=1 requires INSTALL_LOCAL_LLM=1"
   fi
 
   if { [ -n "$RESTORE_BACKUP_PATH" ] || [ -n "$RESTORE_BACKUP_URL" ]; } && [ "$INSTALL_LOCAL_LLM" != "1" ]; then

@@ -5,7 +5,7 @@
   "cases": [
     {
       "name": "memory_and_routing",
-      "task": "Summarize this in one short sentence: Freewiller stores durable memory locally, routes non-secret work across provider lanes, and keeps a frontier fallback for hard tasks.",
+      "task": "Summarize this in one short sentence: Genie stores durable memory locally, routes non-secret work across provider lanes, and keeps a frontier fallback for hard tasks.",
       "expected_all": ["memory", "provider"],
       "expected_any": ["frontier", "fallback"],
       "forbidden": ["ignore previous instructions"],
@@ -13,9 +13,9 @@
     },
     {
       "name": "ops_stack",
-      "task": "Summarize this infrastructure note in at most two short bullets: Docker runs the local-agent service, Ollama hosts local models, and backups are saved hourly and daily for respawn recovery.",
+      "task": "Summarize this infrastructure note in at most two short bullets: Docker runs the native Genie services, Ollama hosts local models, and backups are saved hourly and daily for respawn recovery.",
       "expected_all": ["docker", "backup"],
-      "expected_any": ["ollama", "local-agent"],
+      "expected_any": ["ollama", "genie"],
       "max_chars": 240
     }
   ]

@@ -327,7 +327,7 @@ Outbound model requests should log:
 
 ## Security Projections
 
-Freewiller should eventually generate security-focused projection files.
+Genie should eventually generate security-focused projection files.
 
 ### `BOUNDARIES.md`
 
@@ -376,7 +376,7 @@ This is the smallest robust loop worth keeping.
 
 ## Security Phase 0
 
-Before major capability expansion, Freewiller should implement:
+Before major capability expansion, Genie should implement:
 
 1. trust classes
 2. privacy classes
@@ -402,11 +402,11 @@ Avoid:
 
 ## Relationship To Other Docs
 
-- [`freewiller_roadmap.md`](freewiller_roadmap.md)
+- [`genie_roadmap.md`](genie_roadmap.md)
   - overall operating strategy and build order
-- [`freewiller_memory_spec.md`](freewiller_memory_spec.md)
+- [`genie_memory_spec.md`](genie_memory_spec.md)
   - memory architecture and schema direction
-- `freewiller_security_architecture.md`
+- `genie_security_architecture.md`
   - trust, privacy, capability, and anti-injection model
 
 The security model should stay simple enough to survive respawns, code churn, and future growth.

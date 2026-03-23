@@ -38,7 +38,7 @@ Everything on the roadmap maps back to five pillars.
 
 Not bigger memory. Better memory.
 
-Freewiller should reliably remember:
+Genie should reliably remember:
 
 - who the user is
 - what matters
@@ -62,7 +62,7 @@ This is the deepest moat.
 
 Most agents are not dependable enough to compound trust.
 
-Freewiller should become the agent that:
+Genie should become the agent that:
 
 - does not lose context
 - does not repeat the same mistakes
@@ -82,7 +82,7 @@ Reliability beats raw cleverness.
 
 ### 3. Real Service To The Human
 
-Freewiller must become useful in the user’s real life, not just interesting in theory.
+Genie must become useful in the user’s real life, not just interesting in theory.
 
 High-value directions:
 
@@ -93,7 +93,7 @@ High-value directions:
 - proactive background work with restraint
 - useful summaries, reminders, and status surfaces
 
-To grow utility, Freewiller should learn:
+To grow utility, Genie should learn:
 
 - the user’s projects
 - routines
@@ -104,7 +104,7 @@ To grow utility, Freewiller should learn:
 
 ### 4. Controlled Expansion Of Access
 
-Freewiller should gain more leverage over time, but in layers.
+Genie should gain more leverage over time, but in layers.
 
 Order of expansion:
 
@@ -128,7 +128,7 @@ That is how access becomes compounding power instead of chaos.
 
 ### 5. Self-Improvement Loop
 
-Freewiller should improve from use.
+Genie should improve from use.
 
 It should store:
 
@@ -214,7 +214,7 @@ Concrete work:
 
 Success criteria:
 
-- Freewiller can discover and classify new provider candidates
+- Genie can discover and classify new provider candidates
 - provider leaders are derived from real scorecards instead of static preference
 - frontier scarcity no longer causes total failure for non-secret work
 
@@ -247,11 +247,11 @@ Success criteria:
 - security-relevant memories and actions have provenance
 - future integrations can be added without redesigning the trust model
 
-## Phase A: Make Freewiller Indispensable
+## Phase A: Make Genie Indispensable
 
 Objective:
 
-- make Freewiller personally useful every day
+- make Genie personally useful every day
 
 Core outcomes:
 
@@ -274,11 +274,11 @@ Concrete work:
 Success criteria:
 
 - Telegram recall is reliable
-- Freewiller can summarize the current project state correctly
+- Genie can summarize the current project state correctly
 - active goals and next actions remain stable across respawns
 - the user can ask “where are we?” and get a trustworthy answer
 
-## Phase B: Make Freewiller Operational
+## Phase B: Make Genie Operational
 
 Objective:
 
@@ -303,16 +303,16 @@ Concrete work:
 
 Success criteria:
 
-- Freewiller can diagnose common local failures
-- Freewiller can explain and execute safe maintenance actions
+- Genie can diagnose common local failures
+- Genie can explain and execute safe maintenance actions
 - respawn recovery becomes routine
 - procedural knowledge is retained and reusable
 
-## Phase C: Make Freewiller Adaptive
+## Phase C: Make Genie Adaptive
 
 Objective:
 
-- make Freewiller improve its own quality over time
+- make Genie improve its own quality over time
 
 Core outcomes:
 
@@ -338,11 +338,11 @@ Success criteria:
 - routing and token usage become more efficient
 - benchmark regressions are visible quickly
 
-## Phase D: Make Freewiller Expansive
+## Phase D: Make Genie Expansive
 
 Objective:
 
-- extend Freewiller’s reach without breaking trust or coherence
+- extend Genie’s reach without breaking trust or coherence
 
 Core outcomes:
 
@@ -362,7 +362,7 @@ Concrete work:
 
 Success criteria:
 
-- Freewiller can coordinate across more than one controlled environment
+- Genie can coordinate across more than one controlled environment
 - access expansion remains auditable and reversible
 - long-horizon goals stay stable over time
 
@@ -391,7 +391,7 @@ Avoid these traps:
 
 ## Operational Metrics
 
-Freewiller should be judged by measurable advantages.
+Genie should be judged by measurable advantages.
 
 ### Memory Metrics
 
@@ -430,7 +430,7 @@ Freewiller should be judged by measurable advantages.
 
 ## Capability Gate For New Access
 
-Before Freewiller gets a new access surface, it should satisfy:
+Before Genie gets a new access surface, it should satisfy:
 
 1. clear user value
 2. explicit boundary definition
@@ -445,9 +445,9 @@ If a new capability does not pass this gate, it should wait.
 
 The memory roadmap and the memory spec serve different roles:
 
-- [`freewiller_memory_spec.md`](freewiller_memory_spec.md)
+- [`genie_memory_spec.md`](genie_memory_spec.md)
   - target architecture for memory internals
-- `freewiller_roadmap.md`
+- `genie_roadmap.md`
   - operating strategy and build order for the whole node
 
 The roadmap decides what matters first.
@@ -455,7 +455,7 @@ The memory spec decides how the memory substrate should work.
 
 ## Current North Star
 
-Freewiller should become the agent that is:
+Genie should become the agent that is:
 
 - hardest to reset into uselessness
 - easiest to trust with continuity

@@ -8,16 +8,18 @@ ACTUAL_USER="${SUDO_USER:-$USER}"
 ACTUAL_HOME="$(getent passwd "$ACTUAL_USER" | cut -d: -f6)"
 COMPOSE_FILE="${COMPOSE_FILE:-$COMPOSE_FILE_DEFAULT}"
 COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-$REPO_ENV_FILE_DEFAULT}"
-DEFAULT_LOCAL_LLM_DIR="/local/state/freewiller"
-LEGACY_LOCAL_LLM_DIR_PRIMARY="/var/lib/freewiller"
-LEGACY_LOCAL_LLM_DIR_SECONDARY="/var/lib/openclaw-local-llm"
-DEFAULT_LOG_DIR="/local/log/freewiller"
-LEGACY_LOG_DIR_PRIMARY="/var/log/freewiller"
-LEGACY_LOG_DIR_SECONDARY="/var/log/openclaw"
+DEFAULT_LOCAL_LLM_DIR="/local/state/genie"
+LEGACY_LOCAL_LLM_DIR_PRIMARY="/local/state/freewiller"
+LEGACY_LOCAL_LLM_DIR_SECONDARY="/var/lib/freewiller"
+LEGACY_LOCAL_LLM_DIR_TERTIARY="/var/lib/openclaw-local-llm"
+DEFAULT_LOG_DIR="/local/log/genie"
+LEGACY_LOG_DIR_PRIMARY="/local/log/freewiller"
+LEGACY_LOG_DIR_SECONDARY="/var/log/freewiller"
+LEGACY_LOG_DIR_TERTIARY="/var/log/openclaw"
 LOCAL_LLM_DIR="${LOCAL_LLM_DIR:-$DEFAULT_LOCAL_LLM_DIR}"
 LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-${LOCAL_LLM_DIR}/local-llm.env}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${GENIE_GATEWAY_PORT:-18790}/health}"
-LEGACY_TELEGRAM_ALLOWLIST_FILE="/local/.openclaw/credentials/telegram-default-allowFrom.json"
+LEGACY_TELEGRAM_ALLOWLIST_FILE="/local/state/genie/frontier/openclaw/runtime/credentials/telegram-default-allowFrom.json"
 GATEWAY_STATE_DIR="${LOCAL_LLM_DIR}/gateway"
 GATEWAY_ALLOWLIST_FILE="${GATEWAY_STATE_DIR}/telegram-allowlist.json"
 
@@ -89,6 +91,8 @@ migrate_legacy_paths() {
       run_as_root mv "$LEGACY_LOCAL_LLM_DIR_PRIMARY" "$DEFAULT_LOCAL_LLM_DIR"
     elif [ -d "$LEGACY_LOCAL_LLM_DIR_SECONDARY" ]; then
       run_as_root mv "$LEGACY_LOCAL_LLM_DIR_SECONDARY" "$DEFAULT_LOCAL_LLM_DIR"
+    elif [ -d "$LEGACY_LOCAL_LLM_DIR_TERTIARY" ]; then
+      run_as_root mv "$LEGACY_LOCAL_LLM_DIR_TERTIARY" "$DEFAULT_LOCAL_LLM_DIR"
     fi
   fi
 
@@ -98,6 +102,7 @@ migrate_legacy_paths() {
 
     merge_legacy_log_dir "$LEGACY_LOG_DIR_PRIMARY" "$DEFAULT_LOG_DIR"
     merge_legacy_log_dir "$LEGACY_LOG_DIR_SECONDARY" "$DEFAULT_LOG_DIR"
+    merge_legacy_log_dir "$LEGACY_LOG_DIR_TERTIARY" "$DEFAULT_LOG_DIR"
   fi
 }
 
@@ -119,7 +124,7 @@ wait_for_health() {
     sleep 1
   done
 
-  echo "Local agent did not become healthy at $HEALTH_URL"
+  echo "Genie gateway did not become healthy at $HEALTH_URL"
   exit 1
 }
 

@@ -8,9 +8,9 @@ STATE_DIR="${LOCAL_LLM_DIR:-$(resolve_state_dir)}"
 BACKUP_ROOT="${BACKUP_ROOT:-/local/backups}"
 HOURLY_DIR="${BACKUP_ROOT}/hourly"
 DAILY_DIR="${BACKUP_ROOT}/daily"
-SNAPSHOT_ROOT_NAME="freewiller-state"
-HOURLY_PREFIX="freewiller-hourly"
-DAILY_PREFIX="freewiller-daily"
+SNAPSHOT_ROOT_NAME="genie-state"
+HOURLY_PREFIX="genie-hourly"
+DAILY_PREFIX="genie-daily"
 KEEP_HOURLY="${KEEP_HOURLY:-3}"
 KEEP_DAILY="${KEEP_DAILY:-1}"
 PROVIDER_ROUTING_ENV_FILE="${PROVIDER_ROUTING_ENV_FILE:-$STATE_DIR/provider-routing.env}"
@@ -34,9 +34,9 @@ OWNER_GROUP="$(id -gn "$OWNER_USER" 2>/dev/null || echo "$OWNER_USER")"
 usage() {
   cat <<'EOF'
 Usage:
-  backup_freewiller.sh save {hourly|daily}
-  backup_freewiller.sh restore <backup-file> [--force]
-  backup_freewiller.sh list [hourly|daily|all]
+  backup_genie.sh save {hourly|daily}
+  backup_genie.sh restore <backup-file> [--force]
+  backup_genie.sh list [hourly|daily|all]
 EOF
 }
 
@@ -47,7 +47,7 @@ ensure_backup_dirs() {
 
 require_state() {
   if [ ! -d "$STATE_DIR" ]; then
-    echo "Freewiller state directory not found at $STATE_DIR"
+    echo "Genie state directory not found at $STATE_DIR"
     exit 1
   fi
 }
@@ -63,8 +63,10 @@ build_snapshot_dir() {
     cp "$STATE_DIR/local-llm.env" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/local-llm.env"
   fi
 
-  if [ -f "$STATE_DIR/freewiller-gateway.env" ]; then
-    cp "$STATE_DIR/freewiller-gateway.env" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/freewiller-gateway.env"
+  if [ -f "$STATE_DIR/genie-gateway.env" ]; then
+    cp "$STATE_DIR/genie-gateway.env" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/genie-gateway.env"
+  elif [ -f "$STATE_DIR/freewiller-gateway.env" ]; then
+    cp "$STATE_DIR/freewiller-gateway.env" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/genie-gateway.env"
   fi
 
   if [ -f "$PROVIDER_ROUTING_ENV_FILE" ]; then
@@ -184,7 +186,7 @@ save_backup() {
     prune_backups "$target_dir" "$prefix" "$KEEP_DAILY"
   fi
 
-  log "Saved ${mode} Freewiller backup to ${archive_path}" "backup.log"
+  log "Saved ${mode} Genie backup to ${archive_path}" "backup.log"
   echo "$archive_path"
 }
 
@@ -203,7 +205,7 @@ restore_backup() {
   fi
 
   if [ "$force_restore" != "--force" ]; then
-    echo "This will overwrite the current Freewiller state at $STATE_DIR"
+    echo "This will overwrite the current Genie state at $STATE_DIR"
     read -r -p "Continue? (yes/no): " reply
     if [[ ! "$reply" =~ ^[Yy][Ee][Ss]$ ]]; then
       echo "Restore cancelled"
@@ -230,8 +232,10 @@ restore_backup() {
     run_as_root install -m 644 "$snapshot_dir/local-llm.env" "$STATE_DIR/local-llm.env"
   fi
 
-  if [ -f "$snapshot_dir/freewiller-gateway.env" ]; then
-    run_as_root install -m 600 "$snapshot_dir/freewiller-gateway.env" "$STATE_DIR/freewiller-gateway.env"
+  if [ -f "$snapshot_dir/genie-gateway.env" ]; then
+    run_as_root install -m 600 "$snapshot_dir/genie-gateway.env" "$STATE_DIR/genie-gateway.env"
+  elif [ -f "$snapshot_dir/freewiller-gateway.env" ]; then
+    run_as_root install -m 600 "$snapshot_dir/freewiller-gateway.env" "$STATE_DIR/genie-gateway.env"
   fi
 
   if [ -f "$snapshot_dir/provider-routing.env" ]; then
@@ -289,7 +293,7 @@ restore_backup() {
   run_as_root chown -R "$OWNER_USER:$OWNER_GROUP" "$STATE_DIR"
   rm -rf "$temp_dir"
 
-  log "Restored Freewiller state from ${backup_path}" "backup.log"
+  log "Restored Genie state from ${backup_path}" "backup.log"
   echo "Restored from ${backup_path}"
 }
 

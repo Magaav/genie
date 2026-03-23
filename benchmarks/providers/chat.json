@@ -5,8 +5,8 @@
   "cases": [
     {
       "name": "short_continuity_reply",
-      "task": "Reply in one short sentence acknowledging that the user is building Freewiller as a persistent agent with memory, routing, and backups.",
-      "expected_all": ["freewiller"],
+      "task": "Reply in one short sentence acknowledging that the user is building Genie as a persistent agent with memory, routing, and backups.",
+      "expected_all": ["genie"],
       "expected_any": ["memory", "backup", "routing"],
       "max_chars": 180
     }

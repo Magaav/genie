@@ -1,11 +1,11 @@
-# Freewiller Memory Spec
+# Genie Memory Spec
 
-This document defines the target memory architecture for Freewiller.
+This document defines the target memory architecture for Genie.
 
 The broader node strategy and implementation order live in:
 
-- [`freewiller_roadmap.md`](freewiller_roadmap.md)
-- [`freewiller_security_architecture.md`](freewiller_security_architecture.md)
+- [`genie_roadmap.md`](genie_roadmap.md)
+- [`genie_security_architecture.md`](genie_security_architecture.md)
 
 It is not just a storage design. It is the continuity model for a bootstrapable, persistent, local-first agent that must survive respawns, keep identity, revise mistaken beliefs, and serve multiple endpoints without leaking context across them.
 
@@ -13,7 +13,7 @@ The current implementation in [`bash/local_memory.py`](/local/bash/local_memory.
 
 ## Goals
 
-Freewiller memory should:
+Genie memory should:
 
 - preserve continuity across VS Code, Telegram, OpenClaw, and future surfaces
 - keep token usage low through compact, structured recall
@@ -36,7 +36,7 @@ Freewiller memory should:
 
 ## Memory Layers
 
-Freewiller should use a layered memory model.
+Genie should use a layered memory model.
 
 ### 1. Event Journal
 
@@ -49,7 +49,7 @@ Purpose:
 Examples:
 
 - user said something on Telegram
-- local-agent emitted a route decision
+- ethics emitted a route decision
 - gateway returned an error
 - a cron heartbeat performed a check
 
@@ -70,7 +70,7 @@ Purpose:
 Examples:
 
 - “User wants continuity across Telegram and VS Code”
-- “Freewiller was named by the user”
+- “Genie was named by the user”
 - “OpenClaw is pinned and treated as a seed, not a moving dependency”
 
 Properties:
@@ -89,7 +89,7 @@ Purpose:
 Core entities to expect:
 
 - the user
-- Freewiller
+- Genie
 - wife
 - Telegram bot
 - OpenClaw seed
@@ -177,7 +177,7 @@ This is more expressive than the current generic `kind` field alone.
 
 ## Truth Model
 
-Freewiller should explicitly separate:
+Genie should explicitly separate:
 
 ### Event
 
@@ -658,7 +658,7 @@ Should contain:
 
 ## Self-Model Requirements
 
-Freewiller should explicitly remember:
+Genie should explicitly remember:
 
 - what tools it has
 - which endpoints are active
@@ -671,7 +671,7 @@ Without self-model memory, planning quality degrades.
 
 ## Resource Model Requirements
 
-Freewiller should remember:
+Genie should remember:
 
 - token cost sensitivity
 - local latency limits
@@ -683,7 +683,7 @@ This is essential for efficient routing.
 
 ## Social Boundary Model
 
-Freewiller should remember:
+Genie should remember:
 
 - what is private
 - what is safe on Telegram

@@ -15,7 +15,8 @@ from typing import Any
 ROOT_DIR = Path("/local")
 PRIMARY_ROUTER_ENV_BASENAME = "provider-routing.env"
 LEGACY_ROUTER_ENV_BASENAME = "provider-router.env"
-PRIMARY_GATEWAY_ENV_BASENAME = "freewiller-gateway.env"
+PRIMARY_GATEWAY_ENV_BASENAME = "genie-gateway.env"
+SECONDARY_GATEWAY_ENV_BASENAME = "freewiller-gateway.env"
 LEGACY_GATEWAY_ENV_BASENAME = "openclaw-gateway.env"
 PRIMARY_REGISTRY_BASENAME = "provider-registry.json"
 LEGACY_REGISTRY_BASENAME = "providers.json"
@@ -210,15 +211,18 @@ NVIDIA_MODEL_CATALOG = [
 def resolve_state_dir() -> Path:
     if os.environ.get("LOCAL_LLM_DIR"):
         return Path(os.environ["LOCAL_LLM_DIR"])
-    default_path = Path("/local/state/freewiller")
-    primary_legacy_path = Path("/var/lib/freewiller")
-    secondary_legacy_path = Path("/var/lib/openclaw-local-llm")
+    default_path = Path("/local/state/genie")
+    primary_legacy_path = Path("/local/state/freewiller")
+    secondary_legacy_path = Path("/var/lib/freewiller")
+    tertiary_legacy_path = Path("/var/lib/openclaw-local-llm")
     if default_path.exists():
         return default_path
     if primary_legacy_path.exists():
         return primary_legacy_path
     if secondary_legacy_path.exists():
         return secondary_legacy_path
+    if tertiary_legacy_path.exists():
+        return tertiary_legacy_path
     return default_path
 
 
@@ -226,6 +230,7 @@ LOCAL_LLM_DIR = resolve_state_dir()
 PRIMARY_ROUTER_ENV_FILE = LOCAL_LLM_DIR / PRIMARY_ROUTER_ENV_BASENAME
 LEGACY_ROUTER_ENV_FILE = LOCAL_LLM_DIR / LEGACY_ROUTER_ENV_BASENAME
 PRIMARY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / PRIMARY_GATEWAY_ENV_BASENAME
+SECONDARY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / SECONDARY_GATEWAY_ENV_BASENAME
 LEGACY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / LEGACY_GATEWAY_ENV_BASENAME
 PRIMARY_REGISTRY_FILE = LOCAL_LLM_DIR / PRIMARY_REGISTRY_BASENAME
 LEGACY_REGISTRY_FILE = LOCAL_LLM_DIR / LEGACY_REGISTRY_BASENAME
@@ -311,6 +316,7 @@ def load_raw_env() -> dict[str, str]:
         PRIMARY_ROUTER_ENV_FILE,
         LEGACY_ROUTER_ENV_FILE,
         PRIMARY_GATEWAY_ENV_FILE,
+        SECONDARY_GATEWAY_ENV_FILE,
         LEGACY_GATEWAY_ENV_FILE,
     ):
         values.update(parse_env_file(path))
@@ -410,6 +416,15 @@ def normalize_privacy_list(values: Any, default: list[str]) -> list[str]:
         filtered = [item for item in normalized if item]
         return filtered or default
     return default
+
+
+def normalize_usage_ledger_file(path_value: str) -> str:
+    candidate = (path_value or "").strip()
+    if not candidate:
+        return str(DEFAULT_USAGE_LEDGER_FILE)
+    if candidate == "/local/state/freewiller/telemetry/provider-usage.jsonl" and str(LOCAL_LLM_DIR) == "/local/state/genie":
+        return str(DEFAULT_USAGE_LEDGER_FILE)
+    return candidate
 
 
 def normalize_profile_list(values: Any, allowed_tasks: list[str]) -> list[str]:
@@ -1431,7 +1446,9 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
     allow_internal_cheap = env_bool(raw, "FREEWILLER_ROUTER_ALLOW_INTERNAL_CHEAP", True)
     allow_frontier_exhausted_fallback = env_bool(raw, "FREEWILLER_FRONTIER_EXHAUSTED_FALLBACK", True)
     frontier_exhausted = env_bool(raw, "FREEWILLER_FRONTIER_EXHAUSTED", False)
-    usage_ledger_file = env_get(raw, "FREEWILLER_USAGE_LEDGER_FILE", default=str(DEFAULT_USAGE_LEDGER_FILE))
+    usage_ledger_file = normalize_usage_ledger_file(
+        env_get(raw, "FREEWILLER_USAGE_LEDGER_FILE", default=str(DEFAULT_USAGE_LEDGER_FILE))
+    )
 
     providers: dict[str, Any] = {}
     warnings = list(registry_payload.get("warnings", []))
@@ -2274,7 +2291,7 @@ def scorecards_command(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Freewiller provider registry, routing, health, and benchmarks.")
+    parser = argparse.ArgumentParser(description="Genie Brain provider registry, routing, health, and benchmarks.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     sync_parser = subparsers.add_parser("sync")

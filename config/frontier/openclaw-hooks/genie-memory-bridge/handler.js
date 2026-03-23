@@ -3,7 +3,7 @@ import path from "node:path";
 
 const DEFAULT_QUEUE_FILE =
   process.env.FREEWILLER_MEMORY_QUEUE_FILE ||
-  "/home/node/.openclaw/workspace/freewiller-ingest/openclaw-memory-queue.jsonl";
+  "/home/node/.openclaw/workspace/genie-ingest/openclaw-memory-queue.jsonl";
 const MAX_TEXT_CHARS = Number.parseInt(process.env.FREEWILLER_MEMORY_BRIDGE_MAX_TEXT_CHARS || "3500", 10);
 const recentFingerprints = new Map();
 
@@ -174,7 +174,7 @@ async function handleSent(event) {
   });
 }
 
-export default async function freewillerMemoryBridge(event) {
+export default async function genieMemoryBridge(event) {
   try {
     if (!event || event.type !== "message") {
       return;
@@ -187,6 +187,6 @@ export default async function freewillerMemoryBridge(event) {
       await handleSent(event);
     }
   } catch (error) {
-    console.error(`[freewiller-memory-bridge] ${String(error)}`);
+    console.error(`[genie-memory-bridge] ${String(error)}`);
   }
 }

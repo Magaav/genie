@@ -4,12 +4,12 @@ set -euo pipefail
 
 source "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/system/env.sh"
 
-BACKUP_SCRIPT="$(realpath "$ROOT_DIR/bash/backup_freewiller.sh")"
+BACKUP_SCRIPT="$(realpath "$ROOT_DIR/bash/backup_genie.sh")"
 CRON_LOG_DIR="$LOG_BASH_DIR"
 HOURLY_CRON_LOG="$CRON_LOG_DIR/backup-hourly-cron.log"
 DAILY_CRON_LOG="$CRON_LOG_DIR/backup-daily-cron.log"
-HOURLY_CRON_MARKER="backup_freewiller.sh save hourly"
-DAILY_CRON_MARKER="backup_freewiller.sh save daily"
+HOURLY_CRON_MARKER="backup_genie.sh save hourly"
+DAILY_CRON_MARKER="backup_genie.sh save daily"
 HOURLY_CRON_ENTRY="5 * * * * $BACKUP_SCRIPT save hourly >> $HOURLY_CRON_LOG 2>&1"
 DAILY_CRON_ENTRY="17 3 * * * $BACKUP_SCRIPT save daily >> $DAILY_CRON_LOG 2>&1"
 
@@ -43,7 +43,7 @@ main() {
   upsert_cron_entry "$HOURLY_CRON_ENTRY" "$HOURLY_CRON_MARKER"
   upsert_cron_entry "$DAILY_CRON_ENTRY" "$DAILY_CRON_MARKER"
 
-  echo "Installed Freewiller backup cron jobs."
+  echo "Installed Genie backup cron jobs."
   echo "Hourly: $HOURLY_CRON_ENTRY"
   echo "Daily:  $DAILY_CRON_ENTRY"
   echo

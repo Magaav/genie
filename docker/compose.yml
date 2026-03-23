@@ -8,8 +8,8 @@ services:
     env_file:
       - /local/docker/.env
     environment:
-      LOCAL_LLM_DIR: /local/state/freewiller
-      FREEWILLER_LOG_DIR: /local/log/freewiller
+      LOCAL_LLM_DIR: /local/state/genie
+      FREEWILLER_LOG_DIR: /local/log/genie
       OLLAMA_API_URL: http://127.0.0.1:11434
       GENIE_BRAIN_HOST: 127.0.0.1
       GENIE_BRAIN_PORT: ${GENIE_BRAIN_PORT:-18793}
@@ -20,8 +20,8 @@ services:
       retries: 3
       start_period: 10s
     volumes:
-      - /local/state/freewiller:/local/state/freewiller
-      - /local/log/freewiller:/local/log/freewiller
+      - /local/state/genie:/local/state/genie
+      - /local/log/genie:/local/log/genie
       - /local/bash:/local/bash:ro
       - /local/config:/local/config:ro
       - /local/benchmarks:/local/benchmarks:ro
@@ -36,8 +36,8 @@ services:
     env_file:
       - /local/docker/.env
     environment:
-      LOCAL_LLM_DIR: /local/state/freewiller
-      FREEWILLER_LOG_DIR: /local/log/freewiller
+      LOCAL_LLM_DIR: /local/state/genie
+      FREEWILLER_LOG_DIR: /local/log/genie
       OLLAMA_API_URL: http://127.0.0.1:11434
       GENIE_MEMORY_HOST: 127.0.0.1
       GENIE_MEMORY_PORT: ${GENIE_MEMORY_PORT:-18792}
@@ -48,8 +48,8 @@ services:
       retries: 3
       start_period: 10s
     volumes:
-      - /local/state/freewiller:/local/state/freewiller
-      - /local/log/freewiller:/local/log/freewiller
+      - /local/state/genie:/local/state/genie
+      - /local/log/genie:/local/log/genie
       - /local/bash:/local/bash:ro
       - /local/docker/.env:/local/docker/.env:ro
 
@@ -62,8 +62,8 @@ services:
     env_file:
       - /local/docker/.env
     environment:
-      LOCAL_LLM_DIR: /local/state/freewiller
-      FREEWILLER_LOG_DIR: /local/log/freewiller
+      LOCAL_LLM_DIR: /local/state/genie
+      FREEWILLER_LOG_DIR: /local/log/genie
       OLLAMA_API_URL: http://127.0.0.1:11434
       GENIE_ETHICS_HOST: 127.0.0.1
       GENIE_ETHICS_PORT: ${GENIE_ETHICS_PORT:-18791}
@@ -81,8 +81,8 @@ services:
       retries: 3
       start_period: 10s
     volumes:
-      - /local/state/freewiller:/local/state/freewiller
-      - /local/log/freewiller:/local/log/freewiller
+      - /local/state/genie:/local/state/genie
+      - /local/log/genie:/local/log/genie
       - /local/bash:/local/bash:ro
       - /local/docker/.env:/local/docker/.env:ro
 
@@ -95,8 +95,8 @@ services:
     env_file:
       - /local/docker/.env
     environment:
-      LOCAL_LLM_DIR: /local/state/freewiller
-      FREEWILLER_LOG_DIR: /local/log/freewiller
+      LOCAL_LLM_DIR: /local/state/genie
+      FREEWILLER_LOG_DIR: /local/log/genie
       OLLAMA_API_URL: http://127.0.0.1:11434
       GENIE_GATEWAY_HOST: 127.0.0.1
       GENIE_GATEWAY_PORT: ${GENIE_GATEWAY_PORT:-18790}
@@ -118,7 +118,7 @@ services:
       retries: 3
       start_period: 10s
     volumes:
-      - /local/state/freewiller:/local/state/freewiller
-      - /local/log/freewiller:/local/log/freewiller
+      - /local/state/genie:/local/state/genie
+      - /local/log/genie:/local/log/genie
       - /local/bash:/local/bash:ro
       - /local/docker/.env:/local/docker/.env:ro

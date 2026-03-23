@@ -18,22 +18,26 @@ import provider_router
 
 LOCAL_LLM_SH = Path("/local/bash/local_llm.sh")
 LOCAL_MEMORY_PY = Path("/local/bash/local_memory.py")
-PRIMARY_GATEWAY_ENV_BASENAME = "freewiller-gateway.env"
+PRIMARY_GATEWAY_ENV_BASENAME = "genie-gateway.env"
+SECONDARY_GATEWAY_ENV_BASENAME = "freewiller-gateway.env"
 LEGACY_GATEWAY_ENV_BASENAME = "openclaw-gateway.env"
 
 
 def resolve_state_dir() -> Path:
     if os.environ.get("LOCAL_LLM_DIR"):
         return Path(os.environ["LOCAL_LLM_DIR"])
-    default_path = Path("/local/state/freewiller")
-    primary_legacy_path = Path("/var/lib/freewiller")
-    secondary_legacy_path = Path("/var/lib/openclaw-local-llm")
+    default_path = Path("/local/state/genie")
+    primary_legacy_path = Path("/local/state/freewiller")
+    secondary_legacy_path = Path("/var/lib/freewiller")
+    tertiary_legacy_path = Path("/var/lib/openclaw-local-llm")
     if default_path.exists():
         return default_path
     if primary_legacy_path.exists():
         return primary_legacy_path
     if secondary_legacy_path.exists():
         return secondary_legacy_path
+    if tertiary_legacy_path.exists():
+        return tertiary_legacy_path
     return default_path
 
 
@@ -41,6 +45,7 @@ LOCAL_LLM_DIR = resolve_state_dir()
 PACKAGES_DIR = LOCAL_LLM_DIR / "packages"
 RESPONSES_DIR = LOCAL_LLM_DIR / "responses"
 PRIMARY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / PRIMARY_GATEWAY_ENV_BASENAME
+SECONDARY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / SECONDARY_GATEWAY_ENV_BASENAME
 LEGACY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / LEGACY_GATEWAY_ENV_BASENAME
 
 
@@ -63,7 +68,7 @@ def load_gateway_config() -> dict[str, str]:
         ),
     }
 
-    for env_file in (PRIMARY_GATEWAY_ENV_FILE, LEGACY_GATEWAY_ENV_FILE):
+    for env_file in (PRIMARY_GATEWAY_ENV_FILE, SECONDARY_GATEWAY_ENV_FILE, LEGACY_GATEWAY_ENV_FILE):
         if not env_file.exists():
             continue
 
@@ -205,7 +210,7 @@ def build_remote_package(
     ).strip()
 
 
-def save_package(content: str, prefix: str = "freewiller-remote-package") -> str:
+def save_package(content: str, prefix: str = "genie-remote-package") -> str:
     ensure_dirs()
     existing = sorted(PACKAGES_DIR.glob(f"{prefix}-*.md"))
     next_index = len(existing) + 1
@@ -278,7 +283,7 @@ def extract_usage(response_json: dict[str, Any]) -> dict[str, int]:
 
 def response_prefix_for_provider(provider_id: str) -> str:
     safe_id = provider_router.sanitize_provider_name(provider_id) or "provider"
-    return f"freewiller-{safe_id}-response"
+    return f"genie-{safe_id}-response"
 
 
 def assess_provider_output(task_class: str, response_text: str, selection_confidence: float) -> dict[str, Any]:
@@ -829,7 +834,7 @@ def dispatch(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Freewiller orchestration layer for routing, memory, and remote prompt packaging.")
+    parser = argparse.ArgumentParser(description="Genie ethics orchestration layer for routing, memory, and remote prompt packaging.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     orchestrate_parser = subparsers.add_parser("orchestrate")

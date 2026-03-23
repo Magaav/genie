@@ -8,15 +8,17 @@ DOCKER_DIR="$ROOT_DIR/docker"
 COMPOSE_FILE_DEFAULT="$DOCKER_DIR/compose.yml"
 REPO_ENV_FILE_DEFAULT="$DOCKER_DIR/.env"
 LEGACY_REPO_ENV_FILE="$ROOT_DIR/.env"
-INSTANCE_NAME="freewiller.ohana"
+INSTANCE_NAME="genie.ohana"
 INSTANCE_EMAIL="vic.scar@gmail.com"
-FREEWILLER_STATE_DIR_DEFAULT="/local/state/freewiller"
-LEGACY_STATE_DIR_PRIMARY="/var/lib/freewiller"
-LEGACY_STATE_DIR_SECONDARY="/var/lib/openclaw-local-llm"
-FREEWILLER_LOG_DIR_DEFAULT="/local/log/freewiller"
-LEGACY_LOG_DIR_PRIMARY="/var/log/freewiller"
-LEGACY_LOG_DIR_SECONDARY="/var/log/openclaw"
-LOG_DIR="${FREEWILLER_LOG_DIR:-${OPENCLAW_LOG_DIR:-$FREEWILLER_LOG_DIR_DEFAULT}}"
+GENIE_STATE_DIR_DEFAULT="/local/state/genie"
+LEGACY_STATE_DIR_PRIMARY="/local/state/freewiller"
+LEGACY_STATE_DIR_SECONDARY="/var/lib/freewiller"
+LEGACY_STATE_DIR_TERTIARY="/var/lib/openclaw-local-llm"
+GENIE_LOG_DIR_DEFAULT="/local/log/genie"
+LEGACY_LOG_DIR_PRIMARY="/local/log/freewiller"
+LEGACY_LOG_DIR_SECONDARY="/var/log/freewiller"
+LEGACY_LOG_DIR_TERTIARY="/var/log/openclaw"
+LOG_DIR="${GENIE_LOG_DIR:-${FREEWILLER_LOG_DIR:-${OPENCLAW_LOG_DIR:-$GENIE_LOG_DIR_DEFAULT}}}"
 LOG_BASH_DIR="$LOG_DIR/system/bash"
 BASH_DIR="$ROOT_DIR/bash"
 NOW=$(date '+%Y-%m-%d_%H-%M-%S')
@@ -32,14 +34,16 @@ run_as_root(){
 resolve_state_dir() {
   if [ -n "${LOCAL_LLM_DIR:-}" ]; then
     printf '%s' "$LOCAL_LLM_DIR"
-  elif [ -d "$FREEWILLER_STATE_DIR_DEFAULT" ]; then
-    printf '%s' "$FREEWILLER_STATE_DIR_DEFAULT"
+  elif [ -d "$GENIE_STATE_DIR_DEFAULT" ]; then
+    printf '%s' "$GENIE_STATE_DIR_DEFAULT"
   elif [ -d "$LEGACY_STATE_DIR_PRIMARY" ]; then
     printf '%s' "$LEGACY_STATE_DIR_PRIMARY"
   elif [ -d "$LEGACY_STATE_DIR_SECONDARY" ]; then
     printf '%s' "$LEGACY_STATE_DIR_SECONDARY"
+  elif [ -d "$LEGACY_STATE_DIR_TERTIARY" ]; then
+    printf '%s' "$LEGACY_STATE_DIR_TERTIARY"
   else
-    printf '%s' "$FREEWILLER_STATE_DIR_DEFAULT"
+    printf '%s' "$GENIE_STATE_DIR_DEFAULT"
   fi
 }
 
@@ -97,12 +101,14 @@ export INSTANCE_NAME
 export INSTANCE_EMAIL
 export LOG_DIR
 export LOG_BASH_DIR
-export FREEWILLER_STATE_DIR_DEFAULT
+export GENIE_STATE_DIR_DEFAULT
 export LEGACY_STATE_DIR_PRIMARY
 export LEGACY_STATE_DIR_SECONDARY
-export FREEWILLER_LOG_DIR_DEFAULT
+export LEGACY_STATE_DIR_TERTIARY
+export GENIE_LOG_DIR_DEFAULT
 export LEGACY_LOG_DIR_PRIMARY
 export LEGACY_LOG_DIR_SECONDARY
+export LEGACY_LOG_DIR_TERTIARY
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   case "$1" in

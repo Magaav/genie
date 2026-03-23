@@ -6,15 +6,18 @@ source "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/system/env.sh"
 
 ACTUAL_USER="${SUDO_USER:-$USER}"
 ACTUAL_HOME="$(getent passwd "$ACTUAL_USER" | cut -d: -f6)"
-DEFAULT_LOCAL_LLM_DIR="/local/state/freewiller"
-LEGACY_LOCAL_LLM_DIR_PRIMARY="/var/lib/freewiller"
-LEGACY_LOCAL_LLM_DIR_SECONDARY="/var/lib/openclaw-local-llm"
+DEFAULT_LOCAL_LLM_DIR="/local/state/genie"
+LEGACY_LOCAL_LLM_DIR_PRIMARY="/local/state/freewiller"
+LEGACY_LOCAL_LLM_DIR_SECONDARY="/var/lib/freewiller"
+LEGACY_LOCAL_LLM_DIR_TERTIARY="/var/lib/openclaw-local-llm"
 LOCAL_LLM_DIR="${LOCAL_LLM_DIR:-$DEFAULT_LOCAL_LLM_DIR}"
 LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-${LOCAL_LLM_DIR}/local-llm.env}"
-FREEWILLER_GATEWAY_ENV_FILE="${FREEWILLER_GATEWAY_ENV_FILE:-${LOCAL_LLM_DIR}/freewiller-gateway.env}"
+GENIE_GATEWAY_ENV_FILE="${GENIE_GATEWAY_ENV_FILE:-${LOCAL_LLM_DIR}/genie-gateway.env}"
+FREEWILLER_GATEWAY_ENV_FILE="${FREEWILLER_GATEWAY_ENV_FILE:-$GENIE_GATEWAY_ENV_FILE}"
 PROVIDER_ROUTING_ENV_FILE="${PROVIDER_ROUTING_ENV_FILE:-${LOCAL_LLM_DIR}/provider-routing.env}"
 PROVIDER_REGISTRY_FILE="${PROVIDER_REGISTRY_FILE:-${LOCAL_LLM_DIR}/provider-registry.json}"
-LEGACY_GATEWAY_ENV_FILE="${LOCAL_LLM_DIR}/openclaw-gateway.env"
+LEGACY_GATEWAY_ENV_FILE="${LOCAL_LLM_DIR}/freewiller-gateway.env"
+OPENCLAW_GATEWAY_ENV_FILE="${LOCAL_LLM_DIR}/openclaw-gateway.env"
 REPO_ENV_FILE="${REPO_ENV_FILE:-$REPO_ENV_FILE_DEFAULT}"
 LEGACY_REPO_ENV_FILE_PATH="${LEGACY_REPO_ENV_FILE_PATH:-$LEGACY_REPO_ENV_FILE}"
 QWEN_MODEL="${QWEN_MODEL:-qwen3:0.6b}"
@@ -163,6 +166,10 @@ fi
 FREEWILLER_CHEAP_PROVIDER_FAMILY="${FREEWILLER_CHEAP_PROVIDER_FAMILY:-generic}"
 FREEWILLER_PUBLIC_PROVIDER_FAMILY="${FREEWILLER_PUBLIC_PROVIDER_FAMILY:-generic}"
 
+if [ "$FREEWILLER_USAGE_LEDGER_FILE" = "/local/state/freewiller/telemetry/provider-usage.jsonl" ] && [ "$LOCAL_LLM_DIR" = "$DEFAULT_LOCAL_LLM_DIR" ]; then
+  FREEWILLER_USAGE_LEDGER_FILE="${LOCAL_LLM_DIR}/telemetry/provider-usage.jsonl"
+fi
+
 ensure_ollama() {
   if ! command -v ollama >/dev/null 2>&1; then
     echo "Ollama is not installed. Run: bash /local/bash/system/require.sh ollama"
@@ -187,6 +194,11 @@ migrate_legacy_state_dir() {
 
   if [ -d "$LEGACY_LOCAL_LLM_DIR_SECONDARY" ] && [ ! -e "$DEFAULT_LOCAL_LLM_DIR" ]; then
     run_as_root mv "$LEGACY_LOCAL_LLM_DIR_SECONDARY" "$DEFAULT_LOCAL_LLM_DIR"
+    return
+  fi
+
+  if [ -d "$LEGACY_LOCAL_LLM_DIR_TERTIARY" ] && [ ! -e "$DEFAULT_LOCAL_LLM_DIR" ]; then
+    run_as_root mv "$LEGACY_LOCAL_LLM_DIR_TERTIARY" "$DEFAULT_LOCAL_LLM_DIR"
   fi
 }
 
@@ -228,6 +240,10 @@ EOF
 
   if [ "$LEGACY_GATEWAY_ENV_FILE" != "$FREEWILLER_GATEWAY_ENV_FILE" ] && [ -f "$LEGACY_GATEWAY_ENV_FILE" ]; then
     run_as_root rm -f "$LEGACY_GATEWAY_ENV_FILE"
+  fi
+
+  if [ "$OPENCLAW_GATEWAY_ENV_FILE" != "$FREEWILLER_GATEWAY_ENV_FILE" ] && [ -f "$OPENCLAW_GATEWAY_ENV_FILE" ]; then
+    run_as_root rm -f "$OPENCLAW_GATEWAY_ENV_FILE"
   fi
 }
 
@@ -309,13 +325,10 @@ install_aliases() {
     echo "alias llm-dispatch='python3 /local/bash/local_agent.py dispatch'" >> "$bashrc_file"
   fi
 
-  if ! grep -Fq "alias genie-backup='bash /local/bash/backup_freewiller.sh'" "$bashrc_file" 2>/dev/null; then
-    echo "alias genie-backup='bash /local/bash/backup_freewiller.sh'" >> "$bashrc_file"
+  if ! grep -Fq "alias genie-backup='bash /local/bash/backup_genie.sh'" "$bashrc_file" 2>/dev/null; then
+    echo "alias genie-backup='bash /local/bash/backup_genie.sh'" >> "$bashrc_file"
   fi
 
-  if ! grep -Fq "alias freewiller-backup='bash /local/bash/backup_freewiller.sh'" "$bashrc_file" 2>/dev/null; then
-    echo "alias freewiller-backup='bash /local/bash/backup_freewiller.sh'" >> "$bashrc_file"
-  fi
 }
 
 sync_provider_registry() {
@@ -357,7 +370,7 @@ main() {
   else
     echo "Cheap lane: not configured"
   fi
-  echo "Reload your shell to use the llm-local, llm-chat, llm-embed, llm-memory, llm-ingest, llm-memory-stats, llm-agent, llm-router, llm-dispatch, genie-backup, and freewiller-backup aliases."
+  echo "Reload your shell to use the llm-local, llm-chat, llm-embed, llm-memory, llm-ingest, llm-memory-stats, llm-agent, llm-router, llm-dispatch, and genie-backup aliases."
 }
 
 main "$@"

@@ -81,19 +81,19 @@ Providers move through explicit states:
 Brain Router keeps its runtime state under:
 
 - registry:
-  - `/local/state/freewiller/provider-registry.json`
+  - `/local/state/genie/provider-registry.json`
 - routing policy:
-  - `/local/state/freewiller/provider-routing.env`
+  - `/local/state/genie/provider-routing.env`
 - health:
-  - `/local/state/freewiller/telemetry/provider-health.json`
+  - `/local/state/genie/telemetry/provider-health.json`
 - benchmarks:
-  - `/local/state/freewiller/telemetry/provider-benchmarks.json`
+  - `/local/state/genie/telemetry/provider-benchmarks.json`
 - scorecards:
-  - `/local/state/freewiller/telemetry/provider-scorecards.json`
+  - `/local/state/genie/telemetry/provider-scorecards.json`
 - discovery:
-  - `/local/state/freewiller/telemetry/provider-discovery.json`
+  - `/local/state/genie/telemetry/provider-discovery.json`
 - usage ledger:
-  - `/local/state/freewiller/telemetry/provider-usage.jsonl`
+  - `/local/state/genie/telemetry/provider-usage.jsonl`
 
 ## Current Provider Families
 

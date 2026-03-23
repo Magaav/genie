@@ -2,8 +2,6 @@
 /state/
 /feed/
 /backups/
-/openclaw/
-/.openclaw/
 /backup/
 /docker/.env
 .env
