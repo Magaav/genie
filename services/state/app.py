@@ -11,8 +11,8 @@ sys.path.insert(0, "/local/bash")
 import local_memory  # noqa: E402
 
 
-HOST = os.environ.get("GENIE_MEMORY_HOST", "127.0.0.1")
-PORT = int(os.environ.get("GENIE_MEMORY_PORT", "18792"))
+HOST = os.environ.get("GENIE_STATE_HOST", os.environ.get("GENIE_MEMORY_HOST", "127.0.0.1"))
+PORT = int(os.environ.get("GENIE_STATE_PORT", os.environ.get("GENIE_MEMORY_PORT", "18792")))
 
 
 def coerce_bool(value: object) -> bool:
@@ -26,7 +26,7 @@ def coerce_bool(value: object) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "GenieMemory/0.1"
+    server_version = "GenieState/0.1"
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
@@ -51,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     {
                         "status": "ok",
-                        "service": "memory",
+                        "service": "state",
                     },
                 )
                 return
@@ -151,7 +151,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> int:
     local_memory.try_sync_projection_files()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"memory listening on {HOST}:{PORT}")
+    print(f"state listening on {HOST}:{PORT}")
     server.serve_forever()
     return 0
 

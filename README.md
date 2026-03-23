@@ -6,7 +6,7 @@ It is designed to respawn onto a fresh Ubuntu VM, recover its local state, and k
 
 - `gateway`
 - `ethics`
-- `memory`
+- `state`
 - `brain`
 
 Current runtime paths:
@@ -44,7 +44,7 @@ Per-service build contexts live under:
 
 - `/local/services/gateway`
 - `/local/services/ethics`
-- `/local/services/memory`
+- `/local/services/state`
 - `/local/services/brain`
 
 ## Spirit, Soul, Body
@@ -59,7 +59,7 @@ Genie uses a simple control model:
   - where intent, memory, and boundaries converge
 - `body`
   - the running machinery
-  - `gateway`, `memory`, `brain`, host Ollama, Docker, cron, filesystems, backups
+  - `gateway`, `state`, `brain`, host Ollama, Docker, cron, filesystems, backups
 
 Full architecture note:
 
@@ -87,12 +87,12 @@ It owns:
 - task decomposition
 - working-state assembly
 - policy-aware execution mediation
-- calling `memory` for context
+- calling `state` for context
 - calling `brain` for provider selection and remote execution
 
-### `memory`
+### `state`
 
-The canonical continuity layer.
+The canonical persistence layer.
 
 It owns:
 
@@ -101,6 +101,7 @@ It owns:
 - search and context assembly
 - projection files
 - export/import and respawn restore hooks
+- policy and gateway-adjacent persisted state
 
 ### `brain`
 
@@ -262,6 +263,7 @@ ollama list
 curl -s http://127.0.0.1:18790/health
 curl -s http://127.0.0.1:18790/policy
 curl -s http://127.0.0.1:18790/providers
+curl -s http://127.0.0.1:18790/state/stats
 curl -s http://127.0.0.1:18790/memory/stats
 ```
 
@@ -269,7 +271,7 @@ Expected services:
 
 - `genie-gateway`
 - `genie-ethics`
-- `genie-memory`
+- `genie-state`
 - `genie-brain`
 
 Useful aliases installed by bootstrap:
@@ -303,7 +305,12 @@ The `gateway` service exposes:
 - `GET /providers/health`
 - `GET /providers/scorecards`
 - `GET /providers/discovery`
+- `GET /state/stats`
 - `GET /memory/stats`
+- `POST /state/ingest`
+- `POST /state/search`
+- `POST /state/context`
+- `POST /state/sync-projections`
 - `POST /memory/ingest`
 - `POST /memory/search`
 - `POST /memory/context`
@@ -374,7 +381,7 @@ Backups include:
 
 - `/local/docker/access.env`
 - `/local/docker/conf.env`
-- memory journal and SQLite store
+- state service data, including the memory journal and SQLite store
 - projection files
 - provider registry/routing/telemetry
 - gateway state

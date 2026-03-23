@@ -16,7 +16,7 @@ import local_agent  # noqa: E402
 
 HOST = os.environ.get("GENIE_ETHICS_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GENIE_ETHICS_PORT", "18791"))
-MEMORY_URL = os.environ.get("GENIE_MEMORY_URL", "http://127.0.0.1:18792").rstrip("/")
+STATE_URL = os.environ.get("GENIE_STATE_URL", os.environ.get("GENIE_MEMORY_URL", "http://127.0.0.1:18792")).rstrip("/")
 BRAIN_URL = os.environ.get("GENIE_BRAIN_URL", "http://127.0.0.1:18793").rstrip("/")
 
 
@@ -57,7 +57,7 @@ def execute_task(payload: dict, *, dispatch_mode: bool) -> dict:
 
     route = local_agent.route_task(args.task)
     context_result = post_json(
-        f"{MEMORY_URL}/context",
+        f"{STATE_URL}/context",
         {
             "query": args.task,
             "limit": args.limit,
@@ -65,7 +65,7 @@ def execute_task(payload: dict, *, dispatch_mode: bool) -> dict:
         },
     )
     hits_result = post_json(
-        f"{MEMORY_URL}/search",
+        f"{STATE_URL}/search",
         {
             "query": args.task,
             "limit": args.limit,
@@ -91,7 +91,7 @@ def execute_task(payload: dict, *, dispatch_mode: bool) -> dict:
     if args.store:
         memory_source_text = args.memory_text if args.memory_text else args.task
         ingest_result = post_json(
-            f"{MEMORY_URL}/ingest",
+            f"{STATE_URL}/ingest",
             {
                 "channel": "ethics",
                 "session_id": "execute",

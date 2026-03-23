@@ -83,8 +83,8 @@ In Genie v1, the body is composed of:
 - `brain`
   - Brain Router
   - provider discovery, ranking, failover, and execution lane selection
-- `memory`
-  - canonical journal, semantic memory, projections, export/import
+- `state`
+  - canonical journal, semantic memory, projections, export/import, and persisted policy/gateway state
 - host runtime
   - Docker
   - Ollama
@@ -111,13 +111,14 @@ Role:
 - soul-side orchestration
 - policy-aware execution mediation
 - working-state assembly
-- decides how to combine memory and brain outputs
+- decides how to combine state-memory and brain outputs
 
-### `memory`
+### `state`
 
 Role:
 
-- durable continuity
+- durable continuity and persistence
+- memory as a first-class state domain
 - projections
 - recall substrate
 - respawn portability

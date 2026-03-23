@@ -4,7 +4,7 @@ Genie now uses a native four-service node:
 
 - `gateway`
 - `ethics`
-- `memory`
+- `state`
 - `brain`
 
 This file describes the current runtime flow. The long-horizon target memory design lives in:
@@ -26,7 +26,7 @@ This file describes the current runtime flow. The long-horizon target memory des
 - container runtime:
   - `gateway`
   - `ethics`
-  - `memory`
+  - `state`
   - `brain`
 
 ## Service Roles
@@ -40,7 +40,7 @@ It owns:
 - local HTTP API
 - Telegram integration
 - inbound event normalization
-- writing user and system events into memory
+- writing user and system events into state
 - forwarding execution requests to `ethics`
 
 ### `ethics`
@@ -52,12 +52,12 @@ It owns:
 - task decomposition
 - working-state assembly
 - policy-aware execution mediation
-- calling `memory` for context
+- calling `state` for context
 - calling `brain` for provider ranking and remote execution
 
-### `memory`
+### `state`
 
-The continuity layer.
+The persistence layer.
 
 It owns:
 
@@ -66,6 +66,7 @@ It owns:
 - hybrid retrieval
 - projection files
 - export/import and restore hooks
+- memory as a first-class state domain
 
 ### `brain`
 
@@ -85,7 +86,7 @@ It owns:
 
 Runtime state lives under `/local` but is ignored by Git:
 
-- stack env: `/local/docker/.env`
+- stack env: `/local/docker/access.env` and `/local/docker/conf.env`
 - runtime state: `/local/state/genie`
 - runtime logs: `/local/log/genie`
 - backups: `/local/backups`
@@ -118,14 +119,14 @@ Brain Router state:
 ## Memory Flow
 
 1. A message arrives through HTTP or Telegram.
-2. `gateway` normalizes the event and writes it to `memory`.
+2. `gateway` normalizes the event and writes it to `state`.
 3. `gateway` sends the execution request to `ethics`.
-4. `ethics` asks `memory` for relevant context and working state.
+4. `ethics` asks `state` for relevant context and working state.
 5. `ethics` asks `brain` to rank eligible providers for the task and privacy class.
 6. `brain` selects a provider lane, executes the request, and fails over if needed.
 7. `ethics` evaluates the result, decides whether to accept it or escalate, and returns a final response.
-8. `gateway` delivers the reply and records the turn back into `memory`.
-9. `memory` refreshes projection files so the node preserves continuity across restarts and endpoints.
+8. `gateway` delivers the reply and records the turn back into `state`.
+9. `state` refreshes projection files so the node preserves continuity across restarts and endpoints.
 
 ## Operational Rules
 
@@ -155,6 +156,7 @@ Check health:
 ```bash
 curl -s http://127.0.0.1:18790/health
 curl -s http://127.0.0.1:18790/providers
+curl -s http://127.0.0.1:18790/state/stats
 curl -s http://127.0.0.1:18790/memory/stats
 ```
 

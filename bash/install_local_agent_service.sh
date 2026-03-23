@@ -159,13 +159,11 @@ wait_for_health() {
 install_aliases() {
   local bashrc_file="${ACTUAL_HOME}/.bashrc"
 
-  if ! grep -Fq "alias genie-up='docker compose -f ${COMPOSE_FILE} up -d --build'" "$bashrc_file" 2>/dev/null; then
-    echo "alias genie-up='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} up -d --build'" >> "$bashrc_file"
-  fi
+  sed -i '/alias genie-up=/d' "$bashrc_file" 2>/dev/null || true
+  echo "alias genie-up='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} up -d --build --remove-orphans'" >> "$bashrc_file"
 
-  if ! grep -Fq "alias genie-logs='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} logs -f gateway ethics memory brain'" "$bashrc_file" 2>/dev/null; then
-    echo "alias genie-logs='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} logs -f gateway ethics memory brain'" >> "$bashrc_file"
-  fi
+  sed -i '/alias genie-logs=/d' "$bashrc_file" 2>/dev/null || true
+  echo "alias genie-logs='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} logs -f gateway ethics state brain'" >> "$bashrc_file"
 }
 
 main() {
@@ -175,7 +173,7 @@ main() {
   migrate_legacy_gateway_state
   ensure_local_llm_config
   run_as_root mkdir -p "$LOCAL_LLM_DIR" "${FREEWILLER_LOG_DIR:-$DEFAULT_LOG_DIR}"
-  compose_cmd up -d --build
+  compose_cmd up -d --build --remove-orphans
   wait_for_health
   install_aliases
 

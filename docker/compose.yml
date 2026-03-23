@@ -28,10 +28,10 @@ services:
       - /local/benchmarks:/local/benchmarks:ro
       - /local/docker:/local/docker:ro
 
-  memory:
+  state:
     build:
-      context: /local/services/memory
-    container_name: genie-memory
+      context: /local/services/state
+    container_name: genie-state
     network_mode: host
     restart: unless-stopped
     env_file:
@@ -41,10 +41,10 @@ services:
       LOCAL_LLM_DIR: /local/state/genie
       FREEWILLER_LOG_DIR: /local/log/genie
       OLLAMA_API_URL: http://127.0.0.1:11434
-      GENIE_MEMORY_HOST: 127.0.0.1
-      GENIE_MEMORY_PORT: ${GENIE_MEMORY_PORT:-18792}
+      GENIE_STATE_HOST: 127.0.0.1
+      GENIE_STATE_PORT: ${GENIE_STATE_PORT:-18792}
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${GENIE_MEMORY_PORT:-18792}/health"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${GENIE_STATE_PORT:-18792}/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -70,12 +70,12 @@ services:
       OLLAMA_API_URL: http://127.0.0.1:11434
       GENIE_ETHICS_HOST: 127.0.0.1
       GENIE_ETHICS_PORT: ${GENIE_ETHICS_PORT:-18791}
-      GENIE_MEMORY_URL: http://127.0.0.1:${GENIE_MEMORY_PORT:-18792}
+      GENIE_STATE_URL: http://127.0.0.1:${GENIE_STATE_PORT:-18792}
       GENIE_BRAIN_URL: http://127.0.0.1:${GENIE_BRAIN_PORT:-18793}
     depends_on:
       brain:
         condition: service_healthy
-      memory:
+      state:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${GENIE_ETHICS_PORT:-18791}/health"]
@@ -106,12 +106,12 @@ services:
       GENIE_GATEWAY_PORT: ${GENIE_GATEWAY_PORT:-18790}
       GENIE_TELEGRAM_ENABLED: ${GENIE_TELEGRAM_ENABLED:-1}
       GENIE_ETHICS_URL: http://127.0.0.1:${GENIE_ETHICS_PORT:-18791}
-      GENIE_MEMORY_URL: http://127.0.0.1:${GENIE_MEMORY_PORT:-18792}
+      GENIE_STATE_URL: http://127.0.0.1:${GENIE_STATE_PORT:-18792}
       GENIE_BRAIN_URL: http://127.0.0.1:${GENIE_BRAIN_PORT:-18793}
     depends_on:
       ethics:
         condition: service_healthy
-      memory:
+      state:
         condition: service_healthy
       brain:
         condition: service_healthy

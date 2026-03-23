@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 HOST = os.environ.get("GENIE_GATEWAY_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GENIE_GATEWAY_PORT", "18790"))
 ETHICS_URL = os.environ.get("GENIE_ETHICS_URL", "http://127.0.0.1:18791").rstrip("/")
-MEMORY_URL = os.environ.get("GENIE_MEMORY_URL", "http://127.0.0.1:18792").rstrip("/")
+STATE_URL = os.environ.get("GENIE_STATE_URL", os.environ.get("GENIE_MEMORY_URL", "http://127.0.0.1:18792")).rstrip("/")
 BRAIN_URL = os.environ.get("GENIE_BRAIN_URL", "http://127.0.0.1:18793").rstrip("/")
 STATE_DIR = Path("/local/state/genie")
 GATEWAY_STATE_DIR = STATE_DIR / "gateway"
@@ -124,7 +124,7 @@ def ingest_telegram_event(
     skip_memory: bool = False,
 ) -> None:
     proxy_post(
-        MEMORY_URL,
+        STATE_URL,
         "/ingest",
         {
             "channel": "telegram",
@@ -296,8 +296,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, proxy_get(BRAIN_URL, "/providers/discovery", parsed.query))
                 return
 
-            if parsed.path == "/memory/stats":
-                self._write_json(HTTPStatus.OK, proxy_get(MEMORY_URL, "/stats"))
+            if parsed.path in {"/memory/stats", "/state/stats"}:
+                self._write_json(HTTPStatus.OK, proxy_get(STATE_URL, "/stats"))
                 return
         except Exception as exc:
             self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -313,20 +313,20 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            if self.path == "/memory/ingest":
-                self._write_json(HTTPStatus.OK, proxy_post(MEMORY_URL, "/ingest", payload))
+            if self.path in {"/memory/ingest", "/state/ingest"}:
+                self._write_json(HTTPStatus.OK, proxy_post(STATE_URL, "/ingest", payload))
                 return
 
-            if self.path == "/memory/search":
-                self._write_json(HTTPStatus.OK, proxy_post(MEMORY_URL, "/search", payload))
+            if self.path in {"/memory/search", "/state/search"}:
+                self._write_json(HTTPStatus.OK, proxy_post(STATE_URL, "/search", payload))
                 return
 
-            if self.path == "/memory/context":
-                self._write_json(HTTPStatus.OK, proxy_post(MEMORY_URL, "/context", payload))
+            if self.path in {"/memory/context", "/state/context"}:
+                self._write_json(HTTPStatus.OK, proxy_post(STATE_URL, "/context", payload))
                 return
 
-            if self.path == "/memory/sync-projections":
-                self._write_json(HTTPStatus.OK, proxy_post(MEMORY_URL, "/sync-projections", payload))
+            if self.path in {"/memory/sync-projections", "/state/sync-projections"}:
+                self._write_json(HTTPStatus.OK, proxy_post(STATE_URL, "/sync-projections", payload))
                 return
 
             if self.path == "/providers/evaluate":
