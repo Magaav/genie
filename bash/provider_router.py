@@ -96,6 +96,8 @@ DIRECT_CONFIDENCE_THRESHOLD = 0.62
 FRONTIER_REVIEW_CONFIDENCE_THRESHOLD = 0.56
 SMALL_GAP_THRESHOLD = 0.05
 FRONTIER_REVIEW_TASKS = {"chat", "summarize", "extract", "compact", "reflect", "research_public"}
+AUTO_DISCOVERY_PREFIXES = ("nvidia_auto_", "openrouter_auto_")
+AUTO_DISCOVERY_SOURCES = {"nvidia:/v1/models", "openrouter:/models"}
 NVIDIA_MODEL_CATALOG = [
     {
         "id": "nvidia_gpt_oss_120b",
@@ -567,15 +569,21 @@ def default_registry_entry_openrouter(raw: dict[str, str]) -> dict[str, Any] | N
     if not api_key_env:
         return None
 
+    free_only = env_bool(raw, "FREEWILLER_OPENROUTER_FREE_ONLY", env_bool(raw, "OPENROUTER_FREE_ONLY", True))
     return {
         "id": "openrouter_auto",
-        "label": "OpenRouter Auto",
+        "label": "OpenRouter Free Router" if free_only else "OpenRouter Auto",
         "enabled": True,
         "provider_family": "openrouter",
         "kind": "openai_compatible",
         "api_key_env": api_key_env,
         "api_base_url": env_get(raw, "FREEWILLER_OPENROUTER_API_BASE_URL", "OPENROUTER_API_BASE_URL", default="https://openrouter.ai/api/v1"),
-        "model": env_get(raw, "FREEWILLER_OPENROUTER_MODEL", "OPENROUTER_MODEL", default="openrouter/auto"),
+        "model": env_get(
+            raw,
+            "FREEWILLER_OPENROUTER_MODEL",
+            "OPENROUTER_MODEL",
+            default="openrouter/free" if free_only else "openrouter/auto",
+        ),
         "api_mode": env_get(raw, "FREEWILLER_OPENROUTER_API_MODE", "OPENROUTER_API_MODE", default="chat"),
         "extra_body": {},
         "trust_tier": "trusted_external",
@@ -908,11 +916,16 @@ def discovery_registry_entries_openrouter(raw: dict[str, str], discovery_store: 
 
     api_base_url = env_get(raw, "FREEWILLER_OPENROUTER_API_BASE_URL", "OPENROUTER_API_BASE_URL", default="https://openrouter.ai/api/v1")
     api_mode = env_get(raw, "FREEWILLER_OPENROUTER_API_MODE", "OPENROUTER_API_MODE", default="chat")
+    free_only = env_bool(raw, "FREEWILLER_OPENROUTER_FREE_ONLY", env_bool(raw, "OPENROUTER_FREE_ONLY", True))
     entries: list[dict[str, Any]] = []
     curated_model_ids = openrouter_curated_model_ids()
 
     sorted_candidates = sorted(
-        (candidate for candidate in candidates if isinstance(candidate, dict)),
+        (
+            candidate
+            for candidate in candidates
+            if isinstance(candidate, dict) and (candidate.get("free_candidate") if free_only else True)
+        ),
         key=lambda candidate: (
             0 if candidate.get("free_candidate") else 1,
             parse_optional_float(candidate.get("prompt_cost_per_million")) or 999999.0,
@@ -1048,6 +1061,8 @@ def merge_registry_entries(existing_entries: list[dict[str, Any]], auto_entries:
                 combined["enabled"] = normalized["enabled"]
             merged[normalized["id"]] = normalize_provider_entry(combined)
         else:
+            if normalized.get("discovery_source") in AUTO_DISCOVERY_SOURCES or normalized["id"].startswith(AUTO_DISCOVERY_PREFIXES):
+                continue
             if normalized["id"] in auto_managed_ids:
                 continue
             merged[normalized["id"]] = normalized

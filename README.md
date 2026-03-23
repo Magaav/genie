@@ -212,6 +212,8 @@ Examples:
 TELEGRAM_BOT_TOKEN='...'
 NVIDIA_API_KEY='...'
 OPENROUTER_API_KEY='...'
+OPENROUTER_MODEL='openrouter/free'
+OPENROUTER_FREE_ONLY='1'
 GENIE_GATEWAY_PORT='18790'
 GENIE_TELEGRAM_ENABLED='1'
 ```
@@ -221,6 +223,13 @@ Do not use root-level `/local/.env` anymore.
 `bash /local/bash/install_local_llm.sh` will read `/local/docker/.env`, sync provider configuration, and persist resolved routing state.
 
 When `NVIDIA_API_KEY` or `OPENROUTER_API_KEY` is present, Brain Router also discovers the live provider catalogs and imports bounded benchmark-pending candidates automatically.
+
+The recommended OpenRouter baseline while frontier usage is scarce is:
+
+- `OPENROUTER_MODEL='openrouter/free'`
+- `OPENROUTER_FREE_ONLY='1'`
+
+That keeps Genie on the free router and only imports free OpenRouter candidates until you deliberately opt into paid lanes.
 
 ## Start And Verify
 
