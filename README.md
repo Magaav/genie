@@ -208,18 +208,40 @@ Then restart the local-agent service:
 bash /local/bash/install_local_agent_service.sh
 ```
 
-If you want to add cheaper external lanes later, edit:
+If you want to add cheaper external lanes later, the human-facing control point is:
+
+```bash
+/local/.env
+```
+
+The machine-facing persisted routing state remains:
 
 ```bash
 /local/state/freewiller/provider-routing.env
 ```
 
-That file controls:
+Freewiller will read `.env` during `bash /local/bash/install_local_llm.sh` and persist the resolved routing config there. That means a respawn can recover cheap-lane settings from backup without you editing runtime files by hand.
+
+That routing state controls:
 
 - default privacy routing
 - the cheap compatible lane
 - the public external lane
 - the provider usage ledger location
+
+Example NVIDIA cheap-lane config in `/local/.env`:
+
+```bash
+NVIDIA_API_KEY='your_nvidia_key'
+FREEWILLER_NVIDIA_MODEL='moonshotai/kimi-k2.5'
+```
+
+Kimi K2.5 is wired in instant mode by default so it does not waste tokens on thinking traces. After updating `.env`, apply it with:
+
+```bash
+bash /local/bash/install_local_llm.sh
+bash /local/bash/install_local_agent_service.sh
+```
 
 ## OpenClaw Seed Integration
 

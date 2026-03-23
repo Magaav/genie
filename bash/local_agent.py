@@ -471,6 +471,20 @@ def build_openai_compatible_candidates(
         "max_tokens": max_output_tokens,
         "stream": False,
     }
+    extra_body_raw = str(provider.get("extra_body_json", "")).strip()
+    if extra_body_raw:
+        try:
+            extra_body = json.loads(extra_body_raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Provider {provider.get('id', 'unknown')} has invalid extra body JSON: {exc}"
+            ) from exc
+        if not isinstance(extra_body, dict):
+            raise RuntimeError(
+                f"Provider {provider.get('id', 'unknown')} extra body JSON must decode to an object"
+            )
+        responses_body.update(extra_body)
+        chat_body.update(extra_body)
 
     if api_mode == "responses":
         return [("/responses", responses_body, extract_response_text)]

@@ -70,7 +70,10 @@ def parse_env_file(path: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        values[key.strip()] = value.strip()
+        cleaned_value = value.strip()
+        if len(cleaned_value) >= 2 and cleaned_value[:1] == cleaned_value[-1:] and cleaned_value[:1] in {'"', "'"}:
+            cleaned_value = cleaned_value[1:-1]
+        values[key.strip()] = cleaned_value
     return values
 
 
@@ -184,6 +187,7 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
             "id": "frontier_gateway",
             "label": "Frontier Gateway",
             "kind": "gateway",
+            "provider_family": "frontier",
             "configured": bool(
                 env_get(raw, "FREEWILLER_GATEWAY_URL", "OPENCLAW_GATEWAY_URL")
                 and env_get(raw, "FREEWILLER_GATEWAY_TOKEN", "OPENCLAW_GATEWAY_TOKEN")
@@ -203,6 +207,7 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
             "id": "cheap_openai",
             "label": "Cheap Compatible",
             "kind": "openai_compatible",
+            "provider_family": env_get(raw, "FREEWILLER_CHEAP_PROVIDER_FAMILY", default="generic"),
             "configured": bool(
                 env_get(raw, "FREEWILLER_CHEAP_API_BASE_URL")
                 and env_get(raw, "FREEWILLER_CHEAP_API_KEY")
@@ -214,6 +219,7 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
             "api_base_url": env_get(raw, "FREEWILLER_CHEAP_API_BASE_URL"),
             "api_key": env_get(raw, "FREEWILLER_CHEAP_API_KEY"),
             "api_mode": env_get(raw, "FREEWILLER_CHEAP_API_MODE", default="chat").strip().lower() or "chat",
+            "extra_body_json": env_get(raw, "FREEWILLER_CHEAP_EXTRA_BODY_JSON"),
             "input_cost_per_million": env_float(raw, "FREEWILLER_CHEAP_INPUT_COST_PER_MILLION"),
             "output_cost_per_million": env_float(raw, "FREEWILLER_CHEAP_OUTPUT_COST_PER_MILLION"),
         },
@@ -221,6 +227,7 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
             "id": "public_openai",
             "label": "Public External",
             "kind": "openai_compatible",
+            "provider_family": env_get(raw, "FREEWILLER_PUBLIC_PROVIDER_FAMILY", default="generic"),
             "configured": bool(
                 env_get(raw, "FREEWILLER_PUBLIC_API_BASE_URL")
                 and env_get(raw, "FREEWILLER_PUBLIC_API_KEY")
@@ -232,6 +239,7 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
             "api_base_url": env_get(raw, "FREEWILLER_PUBLIC_API_BASE_URL"),
             "api_key": env_get(raw, "FREEWILLER_PUBLIC_API_KEY"),
             "api_mode": env_get(raw, "FREEWILLER_PUBLIC_API_MODE", default="chat").strip().lower() or "chat",
+            "extra_body_json": env_get(raw, "FREEWILLER_PUBLIC_EXTRA_BODY_JSON"),
             "input_cost_per_million": env_float(raw, "FREEWILLER_PUBLIC_INPUT_COST_PER_MILLION"),
             "output_cost_per_million": env_float(raw, "FREEWILLER_PUBLIC_OUTPUT_COST_PER_MILLION"),
         },
@@ -265,6 +273,8 @@ def provider_public_view(provider: dict[str, Any]) -> dict[str, Any]:
         view["api_base_url"] = provider["api_base_url"]
     if provider.get("api_mode"):
         view["api_mode"] = provider["api_mode"]
+    if provider.get("provider_family"):
+        view["provider_family"] = provider["provider_family"]
     return view
 
 
