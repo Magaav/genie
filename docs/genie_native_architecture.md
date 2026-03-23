@@ -118,7 +118,12 @@ Role:
 Role:
 
 - durable continuity and persistence
-- memory as a first-class state domain
+- domain-aware persistence service for:
+  - memory
+  - policy
+  - gateway state
+  - telemetry
+  - runtime artifacts
 - projections
 - recall substrate
 - respawn portability

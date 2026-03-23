@@ -101,7 +101,12 @@ It owns:
 - search and context assembly
 - projection files
 - export/import and respawn restore hooks
-- policy and gateway-adjacent persisted state
+- explicit state domains:
+  - `memory`
+  - `policy`
+  - `gateway`
+  - `telemetry`
+  - `runtime`
 
 ### `brain`
 
@@ -276,8 +281,14 @@ ollama list
 curl -s http://127.0.0.1:18790/health
 curl -s http://127.0.0.1:18790/policy
 curl -s http://127.0.0.1:18790/providers
+curl -s http://127.0.0.1:18790/state/domains
+curl -s http://127.0.0.1:18790/state/summary
 curl -s http://127.0.0.1:18790/state/stats
 curl -s http://127.0.0.1:18790/memory/stats
+curl -s http://127.0.0.1:18790/policy/summary
+curl -s http://127.0.0.1:18790/gateway/summary
+curl -s http://127.0.0.1:18790/telemetry/summary
+curl -s http://127.0.0.1:18790/runtime/summary
 ```
 
 Expected services:
@@ -318,8 +329,14 @@ The `gateway` service exposes:
 - `GET /providers/health`
 - `GET /providers/scorecards`
 - `GET /providers/discovery`
+- `GET /state/domains`
+- `GET /state/summary`
 - `GET /state/stats`
 - `GET /memory/stats`
+- `GET /policy/summary`
+- `GET /gateway/summary`
+- `GET /telemetry/summary`
+- `GET /runtime/summary`
 - `POST /state/ingest`
 - `POST /state/search`
 - `POST /state/context`

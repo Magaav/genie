@@ -299,6 +299,30 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path in {"/memory/stats", "/state/stats"}:
                 self._write_json(HTTPStatus.OK, proxy_get(STATE_URL, "/stats"))
                 return
+
+            if parsed.path in {"/state/domains"}:
+                self._write_json(HTTPStatus.OK, proxy_get(STATE_URL, "/domains"))
+                return
+
+            if parsed.path in {"/state/summary"}:
+                self._write_json(HTTPStatus.OK, proxy_get(STATE_URL, "/state/summary"))
+                return
+
+            if parsed.path in {"/policy/summary", "/state/policy/summary"}:
+                self._write_json(HTTPStatus.OK, proxy_get(STATE_URL, "/policy/summary"))
+                return
+
+            if parsed.path in {"/gateway/summary", "/state/gateway/summary"}:
+                self._write_json(HTTPStatus.OK, proxy_get(STATE_URL, "/gateway/summary"))
+                return
+
+            if parsed.path in {"/telemetry/summary", "/state/telemetry/summary"}:
+                self._write_json(HTTPStatus.OK, proxy_get(STATE_URL, "/telemetry/summary"))
+                return
+
+            if parsed.path in {"/runtime/summary", "/state/runtime/summary"}:
+                self._write_json(HTTPStatus.OK, proxy_get(STATE_URL, "/runtime/summary"))
+                return
         except Exception as exc:
             self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return

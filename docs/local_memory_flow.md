@@ -169,8 +169,13 @@ Check health:
 ```bash
 curl -s http://127.0.0.1:18790/health
 curl -s http://127.0.0.1:18790/providers
+curl -s http://127.0.0.1:18790/state/domains
+curl -s http://127.0.0.1:18790/state/summary
 curl -s http://127.0.0.1:18790/state/stats
 curl -s http://127.0.0.1:18790/memory/stats
+curl -s http://127.0.0.1:18790/policy/summary
+curl -s http://127.0.0.1:18790/gateway/summary
+curl -s http://127.0.0.1:18790/runtime/summary
 ```
 
 Manual backup:

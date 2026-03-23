@@ -2,27 +2,63 @@
 
 import json
 import os
-import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
-sys.path.insert(0, "/local/bash")
-
-import local_memory  # noqa: E402
+import memory_domain
+import gateway_domain
+import policy_domain
+import runtime_domain
+import telemetry_domain
+from common import STATE_LAYOUT
 
 
 HOST = os.environ.get("GENIE_STATE_HOST", os.environ.get("GENIE_MEMORY_HOST", "127.0.0.1"))
 PORT = int(os.environ.get("GENIE_STATE_PORT", os.environ.get("GENIE_MEMORY_PORT", "18792")))
 
+MEMORY_POST_PATHS = {
+    "/ingest": memory_domain.ingest,
+    "/memory/ingest": memory_domain.ingest,
+    "/state/ingest": memory_domain.ingest,
+    "/search": memory_domain.search,
+    "/memory/search": memory_domain.search,
+    "/state/search": memory_domain.search,
+    "/context": memory_domain.context,
+    "/memory/context": memory_domain.context,
+    "/state/context": memory_domain.context,
+    "/sync-projections": lambda payload: memory_domain.sync_projections(),
+    "/memory/sync-projections": lambda payload: memory_domain.sync_projections(),
+    "/state/sync-projections": lambda payload: memory_domain.sync_projections(),
+}
 
-def coerce_bool(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
+
+def domains_catalog() -> dict:
+    return {
+        "service": "state",
+        "state_dir": str(STATE_LAYOUT["state_dir"]),
+        "domains": {
+            "memory": str(STATE_LAYOUT["memory_dir"]),
+            "policy": str(STATE_LAYOUT["policy_dir"]),
+            "gateway": str(STATE_LAYOUT["gateway_dir"]),
+            "telemetry": str(STATE_LAYOUT["telemetry_dir"]),
+            "runtime": str(STATE_LAYOUT["runtime_dir"]),
+        },
+    }
+
+
+def state_summary() -> dict:
+    return {
+        "service": "state",
+        "state_dir": str(STATE_LAYOUT["state_dir"]),
+        "domains": {
+            "memory": memory_domain.stats(),
+            "policy": policy_domain.summary(),
+            "gateway": gateway_domain.summary(),
+            "telemetry": telemetry_domain.summary(),
+            "runtime": runtime_domain.summary(),
+        },
+    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -45,19 +81,45 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self) -> None:
+        parsed = urlsplit(self.path)
         try:
-            if self.path == "/health":
+            if parsed.path == "/health":
                 self._write_json(
                     HTTPStatus.OK,
                     {
                         "status": "ok",
                         "service": "state",
+                        "domains": sorted(domains_catalog()["domains"]),
                     },
                 )
                 return
 
-            if self.path == "/stats":
-                self._write_json(HTTPStatus.OK, local_memory.memory_stats())
+            if parsed.path in {"/domains", "/state/domains"}:
+                self._write_json(HTTPStatus.OK, domains_catalog())
+                return
+
+            if parsed.path in {"/state/summary"}:
+                self._write_json(HTTPStatus.OK, state_summary())
+                return
+
+            if parsed.path in {"/stats", "/memory/stats", "/state/stats"}:
+                self._write_json(HTTPStatus.OK, memory_domain.stats())
+                return
+
+            if parsed.path in {"/policy/summary", "/state/policy/summary"}:
+                self._write_json(HTTPStatus.OK, policy_domain.summary())
+                return
+
+            if parsed.path in {"/gateway/summary", "/state/gateway/summary"}:
+                self._write_json(HTTPStatus.OK, gateway_domain.summary())
+                return
+
+            if parsed.path in {"/telemetry/summary", "/state/telemetry/summary"}:
+                self._write_json(HTTPStatus.OK, telemetry_domain.summary())
+                return
+
+            if parsed.path in {"/runtime/summary", "/state/runtime/summary"}:
+                self._write_json(HTTPStatus.OK, runtime_domain.summary())
                 return
         except Exception as exc:
             self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -73,74 +135,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            if self.path == "/ingest":
-                text = str(payload.get("text", "")).strip()
-                if not text:
-                    self._write_json(HTTPStatus.BAD_REQUEST, {"error": "text is required"})
-                    return
-                result = local_memory.ingest_event(
-                    channel=str(payload.get("channel", "http")),
-                    session_id=str(payload.get("session_id", "")),
-                    role=str(payload.get("role", "user")),
-                    user_id=str(payload.get("user_id", "")),
-                    source=str(payload.get("source", "http")),
-                    kind=str(payload.get("kind", "event")),
-                    text=text,
-                    tags=local_memory.normalize_tags(payload.get("tags", [])),
-                    metadata=local_memory.normalize_metadata(payload.get("metadata", {})),
-                    derive_memory=not coerce_bool(payload.get("skip_memory", False)),
-                    trust_class=str(payload.get("trust_class", "")),
-                    privacy_class=str(payload.get("privacy_class", "")),
-                    source_type=str(payload.get("source_type", "")),
-                    source_id=str(payload.get("source_id", "")),
-                    source_provider=str(payload.get("source_provider", "")),
-                    source_model=str(payload.get("source_model", "")),
-                    verification_status=str(payload.get("verification_status", "")),
-                    operator_confirmed=coerce_bool(payload.get("operator_confirmed", False)),
-                    policy_tags=local_memory.normalize_policy_tags(payload.get("policy_tags", [])),
-                )
-                self._write_json(HTTPStatus.OK, result)
+            handler = MEMORY_POST_PATHS.get(self.path)
+            if handler is not None:
+                self._write_json(HTTPStatus.OK, handler(payload))
                 return
-
-            if self.path == "/search":
-                query = str(payload.get("query", "")).strip()
-                if not query:
-                    self._write_json(HTTPStatus.BAD_REQUEST, {"error": "query is required"})
-                    return
-                limit = int(payload.get("limit", 5))
-                allowed_privacy = payload.get("allowed_privacy")
-                self._write_json(
-                    HTTPStatus.OK,
-                    {"results": local_memory.search_memory_entries(query, limit, allowed_privacy)},
-                )
-                return
-
-            if self.path == "/context":
-                query = str(payload.get("query", "")).strip()
-                if not query:
-                    self._write_json(HTTPStatus.BAD_REQUEST, {"error": "query is required"})
-                    return
-                limit = int(payload.get("limit", 5))
-                allowed_privacy = payload.get("allowed_privacy")
-                self._write_json(
-                    HTTPStatus.OK,
-                    {
-                        "context": local_memory.build_context(query, limit, allowed_privacy),
-                        "hits": local_memory.search_memory_entries(query, limit, allowed_privacy),
-                    },
-                )
-                return
-
-            if self.path == "/sync-projections":
-                local_memory.sync_projection_files()
-                self._write_json(
-                    HTTPStatus.OK,
-                    {
-                        "status": "ok",
-                        "projection_memory_file": str(local_memory.PROJECTION_MEMORY_FILE),
-                    },
-                )
-                return
+        except ValueError as exc:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
         except Exception as exc:
             self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return
@@ -149,7 +150,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    local_memory.try_sync_projection_files()
+    memory_domain.try_sync_projections()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"state listening on {HOST}:{PORT}")
     server.serve_forever()
