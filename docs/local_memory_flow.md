@@ -49,6 +49,12 @@ Freewiller uses a guarded local utility layer before remote escalation.
 - `bash/openclaw_memory_bridge.py`
   - drains the OpenClaw workspace queue
   - ingests mirrored OpenClaw and Telegram events into shared memory
+- OpenClaw workspace projection
+  - synchronized prompt files for the Telegram-facing `main` agent
+  - `IDENTITY.md`
+  - `USER.md`
+  - `MEMORY.md`
+  - `memory/YYYY-MM-DD.md`
 
 ## Storage
 
@@ -64,6 +70,10 @@ Runtime state lives under `/local`, but outside Git tracking:
 - backup root: `/local/backups/`
 - OpenClaw queue bridge: `/local/.openclaw/workspace/freewiller-ingest/openclaw-memory-queue.jsonl`
 - OpenClaw queue offset: `/local/state/freewiller/bridge/openclaw-memory-queue.offset`
+- OpenClaw injected identity file: `/local/.openclaw/workspace/IDENTITY.md`
+- OpenClaw injected user file: `/local/.openclaw/workspace/USER.md`
+- OpenClaw long-term memory file: `/local/.openclaw/workspace/MEMORY.md`
+- OpenClaw daily memory notes: `/local/.openclaw/workspace/memory/YYYY-MM-DD.md`
 
 Container assets live in the repo:
 
@@ -138,21 +148,22 @@ Backups keep compact recovery data, plus the journal:
    - outbound `message:sent` events
    into the shared queue file under `/local/.openclaw/workspace/freewiller-ingest/`
 7. The dockerized local-agent drains that queue and ingests those events into the same journal and semantic store.
-8. The semantic store derives summary, facts, TODOs, constraints, and embeddings from that event.
-9. Before remote escalation, assemble relevant context with:
+8. Freewiller projects the shared memory back into OpenClaw's injected workspace files so direct Telegram/OpenClaw turns can start with continuity even before they call local memory tools.
+9. The semantic store derives summary, facts, TODOs, constraints, and embeddings from that event.
+10. Before remote escalation, assemble relevant context with:
    - `python3 /local/bash/local_memory.py context --query ...`
-10. Use `python3 /local/bash/local_agent.py orchestrate ...` to package:
+11. Use `python3 /local/bash/local_agent.py orchestrate ...` to package:
    - current task
    - route decision
    - local summary or local skip marker
    - local extract or local skip marker
    - top retrieved memory
-11. Use `python3 /local/bash/local_agent.py dispatch ...` to send the package to the Freewiller gateway.
-12. Send only:
+12. Use `python3 /local/bash/local_agent.py dispatch ...` to send the package to the Freewiller gateway.
+13. Send only:
    - packaged task block
    - compressed recent context
    - required file/tool data
-13. For automation, expose the same orchestration flow through the local agent HTTP service.
+14. For automation, expose the same orchestration flow through the local agent HTTP service.
 
 ## Operational Rules
 

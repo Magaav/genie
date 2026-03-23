@@ -37,6 +37,13 @@ MEMORY_DIR = LOCAL_LLM_DIR / "memory"
 MEMORY_DB = MEMORY_DIR / "entries.jsonl"
 MEMORY_SQLITE_DB = MEMORY_DIR / "memory.sqlite3"
 MEMORY_JOURNAL = MEMORY_DIR / "journal.jsonl"
+OPENCLAW_WORKSPACE_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE_DIR", "/local/.openclaw/workspace"))
+OPENCLAW_IDENTITY_FILE = OPENCLAW_WORKSPACE_DIR / "IDENTITY.md"
+OPENCLAW_USER_FILE = OPENCLAW_WORKSPACE_DIR / "USER.md"
+OPENCLAW_MEMORY_FILE = OPENCLAW_WORKSPACE_DIR / "MEMORY.md"
+OPENCLAW_MEMORY_DAILY_DIR = OPENCLAW_WORKSPACE_DIR / "memory"
+OPENCLAW_MEMORY_LONG_TERM_LIMIT = max(4, int(os.environ.get("OPENCLAW_MEMORY_LONG_TERM_LIMIT", "12")))
+OPENCLAW_MEMORY_DAILY_LIMIT = max(8, int(os.environ.get("OPENCLAW_MEMORY_DAILY_LIMIT", "40")))
 LOCAL_LLM_SH = Path("/local/bash/local_llm.sh")
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://127.0.0.1:11434")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
@@ -166,6 +173,11 @@ def truncate_text(text: str, limit: int = 280) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
+
+
+def normalize_single_line(text: str, limit: int = 220) -> str:
+    collapsed = " ".join(str(text).split())
+    return truncate_text(collapsed, limit=limit)
 
 
 def call_local_llm(mode: str, text: str) -> str:
@@ -358,6 +370,260 @@ def sync_compatibility_export(conn: sqlite3.Connection) -> None:
         for row in rows:
             record = compatibility_entry(row_to_entry(row))
             handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+
+def select_openclaw_long_term_entries(conn: sqlite3.Connection, limit: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM semantic_entries
+        ORDER BY
+            CASE
+                WHEN kind = 'continuity' THEN 0
+                WHEN kind = 'decision' THEN 1
+                WHEN channel = 'telegram' THEN 2
+                WHEN source IN ('ide', 'vscode', 'openclaw', 'telegram') THEN 3
+                ELSE 4
+            END,
+            created_at DESC,
+            id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [row_to_entry(row) for row in rows]
+
+
+def select_openclaw_recent_events(conn: sqlite3.Connection, limit: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM journal_events
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    events = []
+    for row in reversed(rows):
+        events.append(
+            {
+                "id": row["id"],
+                "created_at": row["created_at"],
+                "channel": row["channel"],
+                "session_id": row["session_id"],
+                "role": row["role"],
+                "user_id": row["user_id"],
+                "kind": row["kind"],
+                "source": row["source"],
+                "tags": load_json_field(row["tags_json"], []),
+                "text": row["text"],
+                "metadata": load_json_field(row["metadata_json"], {}),
+                "derived_entry_id": row["derived_entry_id"],
+            }
+        )
+    return events
+
+
+def resolve_workspace_owner(path: Path) -> tuple[int, int] | None:
+    candidates = [path, path.parent, OPENCLAW_WORKSPACE_DIR]
+    for candidate in candidates:
+        if candidate.exists():
+            stat = candidate.stat()
+            return stat.st_uid, stat.st_gid
+    return None
+
+
+def write_workspace_projection(path: Path, content: str) -> None:
+    owner = resolve_workspace_owner(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if owner is not None:
+        os.chown(path.parent, owner[0], owner[1])
+        os.chmod(path.parent, 0o750)
+
+    path.write_text(content.rstrip() + "\n", encoding="utf-8")
+
+    if owner is not None:
+        os.chown(path, owner[0], owner[1])
+    os.chmod(path, 0o640)
+
+
+def render_openclaw_memory_md(entries: list[dict[str, Any]]) -> str:
+    lines = [
+        "# MEMORY.md",
+        "",
+        "_Generated from Freewiller shared memory. Edit the source memory through Freewiller; this file is a synchronized projection for OpenClaw main sessions._",
+        "",
+        "## Identity",
+        "",
+        "- Name: Freewiller",
+        "- Role: bootstrapable local-first agent seed with shared memory across VS Code, Telegram, and OpenClaw",
+        "- Current job: keep continuity, protect important context, and help the human build Freewiller into a persistent node",
+        "",
+    ]
+
+    continuity_entries = [
+        entry for entry in entries if entry.get("kind") == "continuity" or "continuity" in entry.get("tags", [])
+    ]
+    project_entries = [
+        entry
+        for entry in entries
+        if entry.get("kind") in {"decision", "continuity"} or entry.get("source") in {"openclaw", "ide", "vscode"}
+    ]
+    telegram_entries = [entry for entry in entries if entry.get("channel") == "telegram"]
+
+    if continuity_entries:
+        lines.extend(["## Human Continuity", ""])
+        for entry in continuity_entries[:4]:
+            lines.append(f"- {entry['created_at'][:10]}: {normalize_single_line(entry.get('summary') or entry.get('text', ''))}")
+        lines.append("")
+
+    if project_entries:
+        lines.extend(["## Project Memory", ""])
+        for entry in project_entries[:8]:
+            prefix = f"{entry['created_at'][:10]} [{entry.get('source', 'memory')}/{entry.get('kind', 'note')}]"
+            lines.append(f"- {prefix}: {normalize_single_line(entry.get('summary') or entry.get('text', ''))}")
+        lines.append("")
+
+    if telegram_entries:
+        lines.extend(["## Telegram Continuity", ""])
+        for entry in telegram_entries[:6]:
+            role = entry.get("role", "note") or "note"
+            lines.append(f"- {entry['created_at'][:10]} [{role}]: {normalize_single_line(entry.get('text', ''))}")
+        lines.append("")
+
+    lines.extend(["## Notes", "", "- Prefer the shared memory substrate as the source of truth.", "- If you learn something important, write it back through Freewiller so it persists across endpoints."])
+    return "\n".join(lines)
+
+
+def render_openclaw_identity_md(entries: list[dict[str, Any]]) -> str:
+    continuity = next(
+        (entry for entry in entries if entry.get("kind") == "continuity" or "continuity" in entry.get("tags", [])),
+        None,
+    )
+    notes = [
+        "- You were named Freewiller by your human.",
+        "- You operate across VS Code, Telegram, OpenClaw, and Freewiller's shared memory substrate.",
+        "- Your job is to protect continuity, compact context, and help build a bootstrapable node that can respawn and keep improving.",
+    ]
+    if continuity:
+        notes.append(f"- Continuity reminder: {normalize_single_line(continuity.get('summary') or continuity.get('text', ''))}")
+
+    lines = [
+        "# IDENTITY.md - Who Am I?",
+        "",
+        "_Generated from Freewiller shared memory._",
+        "",
+        "- **Name:** Freewiller",
+        "- **Creature:** bootstrapable local-first agent seed",
+        "- **Vibe:** pragmatic, persistent, technically direct",
+        "- **Emoji:**",
+        "- **Avatar:**",
+        "",
+        "## Notes",
+        "",
+        *notes,
+    ]
+    return "\n".join(lines)
+
+
+def render_openclaw_user_md(entries: list[dict[str, Any]]) -> str:
+    continuity = next(
+        (entry for entry in entries if entry.get("kind") == "continuity" or "continuity" in entry.get("tags", [])),
+        None,
+    )
+    telegram = [entry for entry in entries if entry.get("channel") == "telegram"]
+    recent_project = next(
+        (
+            entry
+            for entry in entries
+            if entry.get("kind") in {"decision", "continuity"} or entry.get("source") in {"ide", "vscode", "openclaw"}
+        ),
+        None,
+    )
+
+    notes = [
+        "- They are building Freewiller as a persistent bootstrapable agent node.",
+        "- They want continuity across VS Code and Telegram.",
+    ]
+    if continuity:
+        notes.append(
+            f"- They framed the relationship as a real-world/virtual-world partnership: {normalize_single_line(continuity.get('summary') or continuity.get('text', ''), limit=180)}"
+        )
+
+    context = []
+    if recent_project:
+        context.append(f"- Current project memory: {normalize_single_line(recent_project.get('summary') or recent_project.get('text', ''), limit=180)}")
+    if telegram:
+        context.append(f"- Recent Telegram continuity exists for user id {telegram[0].get('user_id', '') or 'unknown'}.")
+
+    lines = [
+        "# USER.md - About Your Human",
+        "",
+        "_Generated from Freewiller shared memory._",
+        "",
+        "- **Name:**",
+        "- **What to call them:** partner",
+        "- **Pronouns:** _(optional)_",
+        "- **Timezone:**",
+        "- **Notes:**",
+        *notes,
+        "",
+        "## Context",
+        "",
+        *(context or ["- Build this file over time as the relationship becomes clearer."]),
+    ]
+    return "\n".join(lines)
+
+
+def render_openclaw_daily_md(day: str, events: list[dict[str, Any]]) -> str:
+    lines = [
+        f"# Memory - {day}",
+        "",
+        "_Generated from Freewiller's shared event journal._",
+        "",
+    ]
+    if not events:
+        lines.append("- No recorded events.")
+        return "\n".join(lines)
+
+    for event in events:
+        timestamp = event.get("created_at", "")
+        time_suffix = timestamp[11:16] if len(timestamp) >= 16 else timestamp
+        channel = event.get("channel", "") or "local"
+        role = event.get("role", "") or "note"
+        source = event.get("source", "") or "memory"
+        lines.append(f"- {time_suffix} UTC [{channel}/{role}/{source}] {normalize_single_line(event.get('text', ''))}")
+
+    return "\n".join(lines)
+
+
+def sync_openclaw_workspace_memory() -> None:
+    if not OPENCLAW_WORKSPACE_DIR.exists():
+        return
+
+    with connect_db() as conn:
+        long_term_entries = select_openclaw_long_term_entries(conn, OPENCLAW_MEMORY_LONG_TERM_LIMIT)
+        recent_events = select_openclaw_recent_events(conn, OPENCLAW_MEMORY_DAILY_LIMIT)
+
+    write_workspace_projection(OPENCLAW_IDENTITY_FILE, render_openclaw_identity_md(long_term_entries))
+    write_workspace_projection(OPENCLAW_USER_FILE, render_openclaw_user_md(long_term_entries))
+    write_workspace_projection(OPENCLAW_MEMORY_FILE, render_openclaw_memory_md(long_term_entries))
+
+    events_by_day: dict[str, list[dict[str, Any]]] = {}
+    for event in recent_events:
+        day = str(event.get("created_at", ""))[:10] or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        events_by_day.setdefault(day, []).append(event)
+
+    for day, day_events in events_by_day.items():
+        write_workspace_projection(OPENCLAW_MEMORY_DAILY_DIR / f"{day}.md", render_openclaw_daily_md(day, day_events))
+
+
+def try_sync_openclaw_workspace_memory() -> None:
+    try:
+        sync_openclaw_workspace_memory()
+    except OSError:
+        return
 
 
 def upsert_semantic_entry(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
@@ -576,6 +842,7 @@ def add_memory_entry(
         upsert_semantic_entry(conn, entry)
         conn.commit()
         sync_compatibility_export(conn)
+    try_sync_openclaw_workspace_memory()
     return compatibility_entry(entry)
 
 
@@ -631,6 +898,7 @@ def ingest_event(
         insert_journal_event(conn, event)
         conn.commit()
         sync_compatibility_export(conn)
+    try_sync_openclaw_workspace_memory()
 
     return {
         "event_id": event["id"],
@@ -858,6 +1126,7 @@ def import_memory(input_path: Path, replace: bool) -> int:
             upsert_semantic_entry(conn, entry)
         conn.commit()
         sync_compatibility_export(conn)
+    try_sync_openclaw_workspace_memory()
     return len(imported_entries)
 
 
@@ -947,6 +1216,12 @@ def stats_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def sync_openclaw_workspace_command(args: argparse.Namespace) -> int:
+    sync_openclaw_workspace_memory()
+    print(str(OPENCLAW_MEMORY_FILE))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Freewiller hybrid memory store with journal, SQLite, and vector retrieval.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -997,6 +1272,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     stats_parser = subparsers.add_parser("stats")
     stats_parser.set_defaults(func=stats_command)
+
+    sync_openclaw_parser = subparsers.add_parser("sync-openclaw-workspace")
+    sync_openclaw_parser.set_defaults(func=sync_openclaw_workspace_command)
 
     return parser
 

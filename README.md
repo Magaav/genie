@@ -216,6 +216,11 @@ The automatic OpenClaw and Telegram memory bridge works like this:
 - each queued event is written into:
   - `/local/state/freewiller/memory/journal.jsonl`
   - `/local/state/freewiller/memory/memory.sqlite3`
+- Freewiller also projects that shared memory back into the OpenClaw workspace files that the `main` agent reads:
+  - `/local/.openclaw/workspace/IDENTITY.md`
+  - `/local/.openclaw/workspace/USER.md`
+  - `/local/.openclaw/workspace/MEMORY.md`
+  - `/local/.openclaw/workspace/memory/YYYY-MM-DD.md`
 
 That means Telegram and OpenClaw conversations can converge into the same memory substrate without calling `POST /memory/ingest` manually for each chat message.
 
