@@ -19,7 +19,8 @@ PRIMARY_GATEWAY_ENV_BASENAME = "freewiller-gateway.env"
 LEGACY_GATEWAY_ENV_BASENAME = "openclaw-gateway.env"
 PRIMARY_REGISTRY_BASENAME = "provider-registry.json"
 LEGACY_REGISTRY_BASENAME = "providers.json"
-PRIMARY_REPO_ENV_FILE = ROOT_DIR / ".env"
+PRIMARY_REPO_ENV_FILE = ROOT_DIR / "docker" / ".env"
+LEGACY_REPO_ENV_FILE = ROOT_DIR / ".env"
 REGISTRY_TEMPLATE_FILE = ROOT_DIR / "config" / "provider-registry.template.json"
 BENCHMARKS_DIR = ROOT_DIR / "benchmarks" / "providers"
 LOCAL_AGENT_PY = ROOT_DIR / "bash" / "local_agent.py"
@@ -289,16 +290,16 @@ def parse_env_file(path: Path) -> dict[str, str]:
 
 def read_repo_env_keys() -> list[str]:
     keys: list[str] = []
-    if not PRIMARY_REPO_ENV_FILE.exists():
-        return keys
-
-    for raw_line in PRIMARY_REPO_ENV_FILE.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    for env_file in (PRIMARY_REPO_ENV_FILE, LEGACY_REPO_ENV_FILE):
+        if not env_file.exists():
             continue
-        key = line.split("=", 1)[0].strip()
-        if key:
-            keys.append(key)
+        for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key = line.split("=", 1)[0].strip()
+            if key:
+                keys.append(key)
     return keys
 
 
@@ -306,6 +307,7 @@ def load_raw_env() -> dict[str, str]:
     values: dict[str, str] = {}
     for path in (
         PRIMARY_REPO_ENV_FILE,
+        LEGACY_REPO_ENV_FILE,
         PRIMARY_ROUTER_ENV_FILE,
         LEGACY_ROUTER_ENV_FILE,
         PRIMARY_GATEWAY_ENV_FILE,
@@ -490,7 +492,7 @@ def default_registry_entry_frontier(raw: dict[str, str]) -> dict[str, Any]:
         "kind": "gateway",
         "api_key_env": "",
         "api_base_url": env_get(raw, "FREEWILLER_GATEWAY_URL", "OPENCLAW_GATEWAY_URL"),
-        "model": env_get(raw, "FREEWILLER_MODEL", "OPENCLAW_MODEL", default="openclaw:main"),
+        "model": env_get(raw, "FREEWILLER_MODEL", "OPENCLAW_MODEL", default="genie:main"),
         "api_mode": env_get(raw, "FREEWILLER_GATEWAY_API", "OPENCLAW_GATEWAY_API", default="auto"),
         "extra_body": {},
         "trust_tier": "frontier",

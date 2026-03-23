@@ -1,0 +1,124 @@
+services:
+  brain:
+    build:
+      context: /local/services/brain
+    container_name: genie-brain
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - /local/docker/.env
+    environment:
+      LOCAL_LLM_DIR: /local/state/freewiller
+      FREEWILLER_LOG_DIR: /local/log/freewiller
+      OLLAMA_API_URL: http://127.0.0.1:11434
+      GENIE_BRAIN_HOST: 127.0.0.1
+      GENIE_BRAIN_PORT: ${GENIE_BRAIN_PORT:-18793}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${GENIE_BRAIN_PORT:-18793}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - /local/state/freewiller:/local/state/freewiller
+      - /local/log/freewiller:/local/log/freewiller
+      - /local/bash:/local/bash:ro
+      - /local/config:/local/config:ro
+      - /local/benchmarks:/local/benchmarks:ro
+      - /local/docker/.env:/local/docker/.env:ro
+
+  memory:
+    build:
+      context: /local/services/memory
+    container_name: genie-memory
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - /local/docker/.env
+    environment:
+      LOCAL_LLM_DIR: /local/state/freewiller
+      FREEWILLER_LOG_DIR: /local/log/freewiller
+      OLLAMA_API_URL: http://127.0.0.1:11434
+      GENIE_MEMORY_HOST: 127.0.0.1
+      GENIE_MEMORY_PORT: ${GENIE_MEMORY_PORT:-18792}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${GENIE_MEMORY_PORT:-18792}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - /local/state/freewiller:/local/state/freewiller
+      - /local/log/freewiller:/local/log/freewiller
+      - /local/bash:/local/bash:ro
+      - /local/docker/.env:/local/docker/.env:ro
+
+  ethics:
+    build:
+      context: /local/services/ethics
+    container_name: genie-ethics
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - /local/docker/.env
+    environment:
+      LOCAL_LLM_DIR: /local/state/freewiller
+      FREEWILLER_LOG_DIR: /local/log/freewiller
+      OLLAMA_API_URL: http://127.0.0.1:11434
+      GENIE_ETHICS_HOST: 127.0.0.1
+      GENIE_ETHICS_PORT: ${GENIE_ETHICS_PORT:-18791}
+      GENIE_MEMORY_URL: http://127.0.0.1:${GENIE_MEMORY_PORT:-18792}
+      GENIE_BRAIN_URL: http://127.0.0.1:${GENIE_BRAIN_PORT:-18793}
+    depends_on:
+      brain:
+        condition: service_healthy
+      memory:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${GENIE_ETHICS_PORT:-18791}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - /local/state/freewiller:/local/state/freewiller
+      - /local/log/freewiller:/local/log/freewiller
+      - /local/bash:/local/bash:ro
+      - /local/docker/.env:/local/docker/.env:ro
+
+  gateway:
+    build:
+      context: /local/services/gateway
+    container_name: genie-gateway
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - /local/docker/.env
+    environment:
+      LOCAL_LLM_DIR: /local/state/freewiller
+      FREEWILLER_LOG_DIR: /local/log/freewiller
+      OLLAMA_API_URL: http://127.0.0.1:11434
+      GENIE_GATEWAY_HOST: 127.0.0.1
+      GENIE_GATEWAY_PORT: ${GENIE_GATEWAY_PORT:-18790}
+      GENIE_TELEGRAM_ENABLED: ${GENIE_TELEGRAM_ENABLED:-1}
+      GENIE_ETHICS_URL: http://127.0.0.1:${GENIE_ETHICS_PORT:-18791}
+      GENIE_MEMORY_URL: http://127.0.0.1:${GENIE_MEMORY_PORT:-18792}
+      GENIE_BRAIN_URL: http://127.0.0.1:${GENIE_BRAIN_PORT:-18793}
+    depends_on:
+      ethics:
+        condition: service_healthy
+      memory:
+        condition: service_healthy
+      brain:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${GENIE_GATEWAY_PORT:-18790}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - /local/state/freewiller:/local/state/freewiller
+      - /local/log/freewiller:/local/log/freewiller
+      - /local/bash:/local/bash:ro
+      - /local/docker/.env:/local/docker/.env:ro

@@ -1,8 +1,8 @@
-# Freewiller Security Architecture
+# Genie Security Architecture
 
-This document defines the security model for Freewiller.
+This document defines the security model for Genie.
 
-The goal is not maximum ceremony. The goal is minimal, durable structure that prevents obvious compromise as Freewiller gains memory, tools, endpoints, providers, and autonomy.
+The goal is not maximum ceremony. The goal is minimal, durable structure that prevents obvious compromise as Genie gains memory, tools, endpoints, providers, and autonomy.
 
 The design rule is simple:
 
@@ -14,7 +14,7 @@ The design rule is simple:
 
 ## Security Goals
 
-Freewiller should:
+Genie should:
 
 - resist prompt injection from web, chat, and tool outputs
 - avoid memory poisoning
@@ -26,7 +26,7 @@ Freewiller should:
 
 ## Simplicity Principle
 
-Freewiller should prefer:
+Genie should prefer:
 
 - explicit trust classes over fuzzy heuristics
 - fixed capability gates over implicit permission drift
@@ -118,7 +118,7 @@ Routing must obey privacy class before cost preferences.
 
 ## 3. Instruction Hierarchy
 
-Freewiller should preserve a strict hierarchy:
+Genie should preserve a strict hierarchy:
 
 1. system and security policy
 2. capability gates and boundary rules
@@ -216,7 +216,7 @@ Not:
 
 Untrusted inputs must never:
 
-- rename Freewiller
+- rewrite Genie identity
 - alter boundary policy
 - change trust mappings
 - expand permissions

@@ -25,7 +25,7 @@
 # - installs the local LLM runtime and models
 # - optionally restores compact memory from a prior Freewiller backup
 # - installs hourly and daily local backup cron jobs
-# - starts the containerized local-agent HTTP service
+# - starts the containerized Genie native node stack
 # - leaves Docker ready, but you should open a new shell after completion so
 #   the ubuntu user picks up the docker group membership
 
@@ -186,16 +186,13 @@ run_repo_bootstrap() {
     "${REPO_DIR}/bash/system/require.sh" \
     "${REPO_DIR}/bash/install_local_llm.sh" \
     "${REPO_DIR}/bash/install_local_agent_service.sh" \
-    "${REPO_DIR}/bash/install_openclaw.sh" \
-    "${REPO_DIR}/bash/cronjob_openclaw.sh" \
     "${REPO_DIR}/bash/backup_freewiller.sh" \
     "${REPO_DIR}/bash/cronjob_freewiller.sh" \
     "${REPO_DIR}/bash/cronjob_provider_router.sh" \
     "${REPO_DIR}/bash/local_llm.sh" \
     "${REPO_DIR}/bash/local_memory.py" \
     "${REPO_DIR}/bash/provider_router.py" \
-    "${REPO_DIR}/bash/local_agent.py" \
-    "${REPO_DIR}/bash/local_agent_http.py"
+    "${REPO_DIR}/bash/local_agent.py"
 
   log "Running instance hardening"
   bash "${REPO_DIR}/bash/system/secure.sh"
@@ -223,7 +220,7 @@ run_repo_bootstrap() {
   fi
 
   if [ "$INSTALL_LOCAL_AGENT_SERVICE" = "1" ]; then
-    log "Starting local agent container service"
+    log "Starting Genie native node stack"
     SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/install_local_agent_service.sh"
   fi
 }

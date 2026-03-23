@@ -15,7 +15,8 @@ FREEWILLER_GATEWAY_ENV_FILE="${FREEWILLER_GATEWAY_ENV_FILE:-${LOCAL_LLM_DIR}/fre
 PROVIDER_ROUTING_ENV_FILE="${PROVIDER_ROUTING_ENV_FILE:-${LOCAL_LLM_DIR}/provider-routing.env}"
 PROVIDER_REGISTRY_FILE="${PROVIDER_REGISTRY_FILE:-${LOCAL_LLM_DIR}/provider-registry.json}"
 LEGACY_GATEWAY_ENV_FILE="${LOCAL_LLM_DIR}/openclaw-gateway.env"
-REPO_ENV_FILE="${REPO_ENV_FILE:-/local/.env}"
+REPO_ENV_FILE="${REPO_ENV_FILE:-$REPO_ENV_FILE_DEFAULT}"
+LEGACY_REPO_ENV_FILE_PATH="${LEGACY_REPO_ENV_FILE_PATH:-$LEGACY_REPO_ENV_FILE}"
 QWEN_MODEL="${QWEN_MODEL:-qwen3:0.6b}"
 EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
 ROUTE_TIMEOUT_SECONDS="${ROUTE_TIMEOUT_SECONDS:-8}"
@@ -36,6 +37,17 @@ strip_wrapping_quotes() {
     fi
   fi
   printf '%s\n' "$value"
+}
+
+ensure_repo_env_file() {
+  run_as_root mkdir -p "$(dirname "$REPO_ENV_FILE")"
+  if [ ! -f "$REPO_ENV_FILE" ] && [ -f "$LEGACY_REPO_ENV_FILE_PATH" ]; then
+    run_as_root mv "$LEGACY_REPO_ENV_FILE_PATH" "$REPO_ENV_FILE"
+  fi
+  if [ ! -f "$REPO_ENV_FILE" ]; then
+    run_as_root touch "$REPO_ENV_FILE"
+    run_as_root chmod 600 "$REPO_ENV_FILE"
+  fi
 }
 
 read_env_value() {
@@ -72,6 +84,8 @@ read_persisted_value() {
   strip_wrapping_quotes "$raw_value"
 }
 
+ensure_repo_env_file
+
 REPO_NVIDIA_API_KEY="$(read_env_value "$REPO_ENV_FILE" NVIDIA_API_KEY || read_env_value "$REPO_ENV_FILE" FREEWILLER_NVIDIA_API_KEY || read_env_value "$REPO_ENV_FILE" NGC_API_KEY || read_env_value "$REPO_ENV_FILE" NVIDIA_KIMI_K25_API_KEY || true)"
 REPO_NVIDIA_API_BASE_URL="$(read_env_value "$REPO_ENV_FILE" FREEWILLER_NVIDIA_API_BASE_URL || read_env_value "$REPO_ENV_FILE" NVIDIA_API_BASE_URL || echo https://integrate.api.nvidia.com/v1)"
 REPO_NVIDIA_MODEL="$(read_env_value "$REPO_ENV_FILE" FREEWILLER_NVIDIA_MODEL || read_env_value "$REPO_ENV_FILE" NVIDIA_MODEL || echo moonshotai/kimi-k2.5)"
@@ -94,9 +108,9 @@ OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-${FREEWILLER_OPENROUTER_API_KEY:-$REPO
 FREEWILLER_GATEWAY_URL="${FREEWILLER_GATEWAY_URL:-${OPENCLAW_GATEWAY_URL:-$(read_persisted_value "$FREEWILLER_GATEWAY_ENV_FILE" FREEWILLER_GATEWAY_URL || true)}}"
 FREEWILLER_GATEWAY_TOKEN="${FREEWILLER_GATEWAY_TOKEN:-${OPENCLAW_GATEWAY_TOKEN:-$(read_persisted_value "$FREEWILLER_GATEWAY_ENV_FILE" FREEWILLER_GATEWAY_TOKEN || true)}}"
 FREEWILLER_AGENT_ID="${FREEWILLER_AGENT_ID:-${OPENCLAW_AGENT_ID:-$(read_persisted_value "$FREEWILLER_GATEWAY_ENV_FILE" FREEWILLER_AGENT_ID || echo main)}}"
-FREEWILLER_MODEL="${FREEWILLER_MODEL:-${OPENCLAW_MODEL:-$(read_persisted_value "$FREEWILLER_GATEWAY_ENV_FILE" FREEWILLER_MODEL || echo freewiller)}}"
+FREEWILLER_MODEL="${FREEWILLER_MODEL:-${OPENCLAW_MODEL:-$(read_persisted_value "$FREEWILLER_GATEWAY_ENV_FILE" FREEWILLER_MODEL || echo genie)}}"
 FREEWILLER_GATEWAY_API="${FREEWILLER_GATEWAY_API:-${OPENCLAW_GATEWAY_API:-$(read_persisted_value "$FREEWILLER_GATEWAY_ENV_FILE" FREEWILLER_GATEWAY_API || echo auto)}}"
-FREEWILLER_USER="${FREEWILLER_USER:-${OPENCLAW_USER:-$(read_persisted_value "$FREEWILLER_GATEWAY_ENV_FILE" FREEWILLER_USER || echo freewiller-local-agent)}}"
+FREEWILLER_USER="${FREEWILLER_USER:-${OPENCLAW_USER:-$(read_persisted_value "$FREEWILLER_GATEWAY_ENV_FILE" FREEWILLER_USER || echo genie-ethics)}}"
 FREEWILLER_MAX_OUTPUT_TOKENS="${FREEWILLER_MAX_OUTPUT_TOKENS:-${OPENCLAW_MAX_OUTPUT_TOKENS:-$(read_persisted_value "$FREEWILLER_GATEWAY_ENV_FILE" FREEWILLER_MAX_OUTPUT_TOKENS || echo 2048)}}"
 FREEWILLER_ROUTER_DEFAULT_PRIVACY="${FREEWILLER_ROUTER_DEFAULT_PRIVACY:-$(read_persisted_value "$PROVIDER_ROUTING_ENV_FILE" FREEWILLER_ROUTER_DEFAULT_PRIVACY || echo internal)}"
 FREEWILLER_ROUTER_ALLOW_PUBLIC_EXTERNAL="${FREEWILLER_ROUTER_ALLOW_PUBLIC_EXTERNAL:-$(read_persisted_value "$PROVIDER_ROUTING_ENV_FILE" FREEWILLER_ROUTER_ALLOW_PUBLIC_EXTERNAL || echo 1)}"
@@ -295,6 +309,10 @@ install_aliases() {
     echo "alias llm-dispatch='python3 /local/bash/local_agent.py dispatch'" >> "$bashrc_file"
   fi
 
+  if ! grep -Fq "alias genie-backup='bash /local/bash/backup_freewiller.sh'" "$bashrc_file" 2>/dev/null; then
+    echo "alias genie-backup='bash /local/bash/backup_freewiller.sh'" >> "$bashrc_file"
+  fi
+
   if ! grep -Fq "alias freewiller-backup='bash /local/bash/backup_freewiller.sh'" "$bashrc_file" 2>/dev/null; then
     echo "alias freewiller-backup='bash /local/bash/backup_freewiller.sh'" >> "$bashrc_file"
   fi
@@ -302,12 +320,12 @@ install_aliases() {
 
 sync_provider_registry() {
   if [ -n "${NVIDIA_API_KEY:-}" ]; then
-    python3 "$ROOT_DIR/bash/provider_router.py" discover --provider-family nvidia --sync >/tmp/freewiller-provider-sync.json
+    python3 "$ROOT_DIR/bash/provider_router.py" discover --provider-family nvidia --sync >/tmp/genie-provider-sync.json
   else
-    python3 "$ROOT_DIR/bash/provider_router.py" sync >/tmp/freewiller-provider-sync.json
+    python3 "$ROOT_DIR/bash/provider_router.py" sync >/tmp/genie-provider-sync.json
   fi
-  cat /tmp/freewiller-provider-sync.json
-  rm -f /tmp/freewiller-provider-sync.json
+  cat /tmp/genie-provider-sync.json
+  rm -f /tmp/genie-provider-sync.json
 }
 
 main() {
@@ -339,7 +357,7 @@ main() {
   else
     echo "Cheap lane: not configured"
   fi
-  echo "Reload your shell to use the llm-local, llm-chat, llm-embed, llm-memory, llm-ingest, llm-memory-stats, llm-agent, llm-router, llm-dispatch, and freewiller-backup aliases."
+  echo "Reload your shell to use the llm-local, llm-chat, llm-embed, llm-memory, llm-ingest, llm-memory-stats, llm-agent, llm-router, llm-dispatch, genie-backup, and freewiller-backup aliases."
 }
 
 main "$@"

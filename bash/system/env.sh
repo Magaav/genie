@@ -4,6 +4,10 @@ set -e  # Exit on any error
 
 # Get the directory of this script (env.sh)
 ROOT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../.."
+DOCKER_DIR="$ROOT_DIR/docker"
+COMPOSE_FILE_DEFAULT="$DOCKER_DIR/compose.yml"
+REPO_ENV_FILE_DEFAULT="$DOCKER_DIR/.env"
+LEGACY_REPO_ENV_FILE="$ROOT_DIR/.env"
 INSTANCE_NAME="freewiller.ohana"
 INSTANCE_EMAIL="vic.scar@gmail.com"
 FREEWILLER_STATE_DIR_DEFAULT="/local/state/freewiller"
@@ -85,6 +89,10 @@ export -f permissions
 export -f log
 export -f resolve_state_dir
 export ROOT_DIR
+export DOCKER_DIR
+export COMPOSE_FILE_DEFAULT
+export REPO_ENV_FILE_DEFAULT
+export LEGACY_REPO_ENV_FILE
 export INSTANCE_NAME
 export INSTANCE_EMAIL
 export LOG_DIR

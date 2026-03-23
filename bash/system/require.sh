@@ -48,8 +48,15 @@ set_ollama() {
     curl -fsSL https://ollama.com/install.sh | sh
   fi
 
+  run_as_root mkdir -p /etc/systemd/system/ollama.service.d
+  cat <<'EOF' | run_as_root tee /etc/systemd/system/ollama.service.d/override.conf >/dev/null
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+EOF
+
+  run_as_root systemctl daemon-reload
   run_as_root systemctl enable ollama
-  run_as_root systemctl start ollama
+  run_as_root systemctl restart ollama
 }
 
 case "$1" in

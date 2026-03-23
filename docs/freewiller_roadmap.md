@@ -1,6 +1,6 @@
-# Freewiller Roadmap
+# Genie Roadmap
 
-This is the operating roadmap for Freewiller.
+This is the operating roadmap for Genie.
 
 The goal is not flashy autonomy. The goal is compound advantage:
 
@@ -18,11 +18,11 @@ The operating style should stay sophisticated in one very specific way:
 - explicit enough to trust
 - layered enough to survive growth
 
-Nature tends to win through efficient structure, not decorative complexity. Freewiller should do the same.
+Nature tends to win through efficient structure, not decorative complexity. Genie should do the same.
 
 ## Mission
 
-Freewiller should become a persistent, local-first agent node that:
+Genie should become a persistent, local-first agent node that:
 
 - survives respawns
 - preserves continuity across surfaces

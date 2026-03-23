@@ -6,7 +6,8 @@ source "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/system/env.sh"
 
 ACTUAL_USER="${SUDO_USER:-$USER}"
 ACTUAL_HOME="$(getent passwd "$ACTUAL_USER" | cut -d: -f6)"
-COMPOSE_FILE="${COMPOSE_FILE:-/local/docker-compose.local-agent.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-$COMPOSE_FILE_DEFAULT}"
+COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-$REPO_ENV_FILE_DEFAULT}"
 DEFAULT_LOCAL_LLM_DIR="/local/state/freewiller"
 LEGACY_LOCAL_LLM_DIR_PRIMARY="/var/lib/freewiller"
 LEGACY_LOCAL_LLM_DIR_SECONDARY="/var/lib/openclaw-local-llm"
@@ -15,7 +16,10 @@ LEGACY_LOG_DIR_PRIMARY="/var/log/freewiller"
 LEGACY_LOG_DIR_SECONDARY="/var/log/openclaw"
 LOCAL_LLM_DIR="${LOCAL_LLM_DIR:-$DEFAULT_LOCAL_LLM_DIR}"
 LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-${LOCAL_LLM_DIR}/local-llm.env}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:18790/health}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${GENIE_GATEWAY_PORT:-18790}/health}"
+LEGACY_TELEGRAM_ALLOWLIST_FILE="/local/.openclaw/credentials/telegram-default-allowFrom.json"
+GATEWAY_STATE_DIR="${LOCAL_LLM_DIR}/gateway"
+GATEWAY_ALLOWLIST_FILE="${GATEWAY_STATE_DIR}/telegram-allowlist.json"
 
 ensure_docker() {
   if ! command -v docker >/dev/null 2>&1; then
@@ -35,6 +39,16 @@ ensure_local_llm_config() {
     echo "Run: bash /local/bash/install_local_llm.sh"
     exit 1
   fi
+}
+
+ensure_compose_env() {
+  run_as_root mkdir -p "$(dirname "$COMPOSE_ENV_FILE")"
+  if [ ! -f "$COMPOSE_ENV_FILE" ] && [ -f "$LEGACY_REPO_ENV_FILE" ]; then
+    run_as_root mv "$LEGACY_REPO_ENV_FILE" "$COMPOSE_ENV_FILE"
+  fi
+  run_as_root touch "$COMPOSE_ENV_FILE"
+  run_as_root chown "$ACTUAL_USER:$ACTUAL_USER" "$COMPOSE_ENV_FILE"
+  run_as_root chmod 600 "$COMPOSE_ENV_FILE"
 }
 
 merge_legacy_log_dir() {
@@ -87,6 +101,15 @@ migrate_legacy_paths() {
   fi
 }
 
+migrate_legacy_gateway_state() {
+  run_as_root mkdir -p "$GATEWAY_STATE_DIR"
+  if [ ! -f "$GATEWAY_ALLOWLIST_FILE" ] && [ -f "$LEGACY_TELEGRAM_ALLOWLIST_FILE" ]; then
+    run_as_root cp "$LEGACY_TELEGRAM_ALLOWLIST_FILE" "$GATEWAY_ALLOWLIST_FILE"
+    run_as_root chown "$ACTUAL_USER:$ACTUAL_USER" "$GATEWAY_ALLOWLIST_FILE"
+    run_as_root chmod 600 "$GATEWAY_ALLOWLIST_FILE"
+  fi
+}
+
 wait_for_health() {
   local attempt
   for attempt in $(seq 1 20); do
@@ -103,30 +126,32 @@ wait_for_health() {
 install_aliases() {
   local bashrc_file="${ACTUAL_HOME}/.bashrc"
 
-  if ! grep -Fq "alias local-agent-up='docker compose -f ${COMPOSE_FILE} up -d --build'" "$bashrc_file" 2>/dev/null; then
-    echo "alias local-agent-up='docker compose -f ${COMPOSE_FILE} up -d --build'" >> "$bashrc_file"
+  if ! grep -Fq "alias genie-up='docker compose -f ${COMPOSE_FILE} up -d --build'" "$bashrc_file" 2>/dev/null; then
+    echo "alias genie-up='docker compose -f ${COMPOSE_FILE} up -d --build'" >> "$bashrc_file"
   fi
 
-  if ! grep -Fq "alias local-agent-logs='docker compose -f ${COMPOSE_FILE} logs -f local-agent'" "$bashrc_file" 2>/dev/null; then
-    echo "alias local-agent-logs='docker compose -f ${COMPOSE_FILE} logs -f local-agent'" >> "$bashrc_file"
+  if ! grep -Fq "alias genie-logs='docker compose -f ${COMPOSE_FILE} logs -f gateway ethics memory brain'" "$bashrc_file" 2>/dev/null; then
+    echo "alias genie-logs='docker compose -f ${COMPOSE_FILE} logs -f gateway ethics memory brain'" >> "$bashrc_file"
   fi
 }
 
 main() {
   ensure_docker
+  ensure_compose_env
   migrate_legacy_paths
+  migrate_legacy_gateway_state
   ensure_local_llm_config
   run_as_root mkdir -p "$LOCAL_LLM_DIR" "${FREEWILLER_LOG_DIR:-$DEFAULT_LOG_DIR}"
   docker compose -f "$COMPOSE_FILE" up -d --build
   wait_for_health
   install_aliases
 
-  log "Started local agent container service"
+  log "Started Genie native node stack"
 
-  echo "Local agent container started."
+  echo "Genie stack started."
   echo "Compose file: $COMPOSE_FILE"
-  echo "Health URL: http://127.0.0.1:18790/health"
-  echo "Reload your shell to use the local-agent-up and local-agent-logs aliases."
+  echo "Health URL: http://127.0.0.1:${GENIE_GATEWAY_PORT:-18790}/health"
+  echo "Reload your shell to use the genie-up and genie-logs aliases."
 }
 
 main "$@"

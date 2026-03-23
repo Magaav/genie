@@ -19,7 +19,10 @@ USAGE_LEDGER_FILE="${FREEWILLER_USAGE_LEDGER_FILE:-$STATE_DIR/telemetry/provider
 PROVIDER_HEALTH_FILE="${PROVIDER_HEALTH_FILE:-$STATE_DIR/telemetry/provider-health.json}"
 PROVIDER_BENCHMARKS_FILE="${PROVIDER_BENCHMARKS_FILE:-$STATE_DIR/telemetry/provider-benchmarks.json}"
 LOCAL_MEMORY_PY="$(realpath "$ROOT_DIR/bash/local_memory.py")"
-REPO_ENV_FILE="${REPO_ENV_FILE:-$ROOT_DIR/.env}"
+REPO_ENV_FILE="${REPO_ENV_FILE:-$REPO_ENV_FILE_DEFAULT}"
+LEGACY_REPO_ENV_FILE_PATH="${LEGACY_REPO_ENV_FILE_PATH:-$LEGACY_REPO_ENV_FILE}"
+GATEWAY_STATE_DIR="${GATEWAY_STATE_DIR:-$STATE_DIR/gateway}"
+PROJECTIONS_DIR="${PROJECTIONS_DIR:-$STATE_DIR/projections}"
 
 if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   OWNER_USER="${FREEWILLER_OWNER:-${SUDO_USER:-ubuntu}}"
@@ -74,6 +77,8 @@ build_snapshot_dir() {
 
   if [ -f "$REPO_ENV_FILE" ]; then
     cp "$REPO_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/repo.env"
+  elif [ -f "$LEGACY_REPO_ENV_FILE_PATH" ]; then
+    cp "$LEGACY_REPO_ENV_FILE_PATH" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/repo.env"
   fi
 
   if [ -f "$USAGE_LEDGER_FILE" ]; then
@@ -93,6 +98,16 @@ build_snapshot_dir() {
 
   if [ -f "$STATE_DIR/memory/journal.jsonl" ]; then
     cp "$STATE_DIR/memory/journal.jsonl" "$journal_path"
+  fi
+
+  if [ -d "$GATEWAY_STATE_DIR" ]; then
+    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/gateway"
+    cp -R "$GATEWAY_STATE_DIR"/. "$snapshot_dir/$SNAPSHOT_ROOT_NAME/gateway/"
+  fi
+
+  if [ -d "$PROJECTIONS_DIR" ]; then
+    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/projections"
+    cp -R "$PROJECTIONS_DIR"/. "$snapshot_dir/$SNAPSHOT_ROOT_NAME/projections/"
   fi
 
   if [ -f "$STATE_DIR/memory/entries.jsonl" ]; then
@@ -228,8 +243,12 @@ restore_backup() {
   fi
 
   if [ -f "$snapshot_dir/repo.env" ]; then
+    run_as_root mkdir -p "$(dirname "$REPO_ENV_FILE")"
     run_as_root install -m 600 "$snapshot_dir/repo.env" "$REPO_ENV_FILE"
     run_as_root chown "$OWNER_USER:$OWNER_GROUP" "$REPO_ENV_FILE"
+    if [ "$LEGACY_REPO_ENV_FILE_PATH" != "$REPO_ENV_FILE" ] && [ -f "$LEGACY_REPO_ENV_FILE_PATH" ]; then
+      run_as_root rm -f "$LEGACY_REPO_ENV_FILE_PATH"
+    fi
   fi
 
   if [ -f "$snapshot_dir/telemetry/provider-usage.jsonl" ]; then
@@ -249,6 +268,16 @@ restore_backup() {
 
   if [ -f "$journal_memory_path" ]; then
     run_as_root install -m 644 "$journal_memory_path" "$STATE_DIR/memory/journal.jsonl"
+  fi
+
+  if [ -d "$snapshot_dir/gateway" ]; then
+    run_as_root mkdir -p "$GATEWAY_STATE_DIR"
+    run_as_root cp -R "$snapshot_dir/gateway"/. "$GATEWAY_STATE_DIR/"
+  fi
+
+  if [ -d "$snapshot_dir/projections" ]; then
+    run_as_root mkdir -p "$PROJECTIONS_DIR"
+    run_as_root cp -R "$snapshot_dir/projections"/. "$PROJECTIONS_DIR/"
   fi
 
   if [ -f "$compact_memory_path" ]; then

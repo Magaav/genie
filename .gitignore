@@ -5,6 +5,7 @@
 /openclaw/
 /.openclaw/
 /backup/
+/docker/.env
 .env
 __pycache__/
 free_access.sh

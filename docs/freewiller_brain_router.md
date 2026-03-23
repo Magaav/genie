@@ -1,10 +1,10 @@
-# Freewiller Brain Router
+# Genie Brain Router
 
-This document defines the Brain Router subsystem.
+This document defines the Brain Router subsystem for Genie.
 
-Brain Router is the part of Freewiller that decides how to spend cognition.
+Brain Router is the part of Genie that decides how to spend cognition.
 
-Its job is not only to route requests. Its job is to continuously improve how Freewiller uses:
+Its job is not only to route requests. Its job is to continuously improve how Genie uses:
 
 - local models
 - frontier models
@@ -19,7 +19,7 @@ Its job is not only to route requests. Its job is to continuously improve how Fr
 
 Brain Router exists to create compound efficiency.
 
-It should make Freewiller:
+It should make Genie:
 
 - cheaper than naive single-model agents
 - harder to stall
@@ -162,7 +162,7 @@ Breadth without curation becomes noise.
 
 Brain Router is doing its job when:
 
-- Freewiller keeps working even when frontier is unavailable
+- Genie keeps working even when frontier is unavailable
 - cheap models handle most public and internal work
 - premium reasoning is preserved for high-value synthesis
 - provider choice is explainable from telemetry
