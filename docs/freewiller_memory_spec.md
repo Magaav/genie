@@ -5,6 +5,7 @@ This document defines the target memory architecture for Freewiller.
 The broader node strategy and implementation order live in:
 
 - [`freewiller_roadmap.md`](freewiller_roadmap.md)
+- [`freewiller_security_architecture.md`](freewiller_security_architecture.md)
 
 It is not just a storage design. It is the continuity model for a bootstrapable, persistent, local-first agent that must survive respawns, keep identity, revise mistaken beliefs, and serve multiple endpoints without leaking context across them.
 
@@ -31,6 +32,7 @@ Freewiller memory should:
 5. Every important memory should carry epistemic metadata.
 6. The system should prefer revision and merging over endless append-only clutter.
 7. Backups must remain compact and deterministic.
+8. Security semantics should be stored explicitly, not inferred ad hoc.
 
 ## Memory Layers
 
@@ -219,8 +221,12 @@ Required fields:
 
 - `confidence`
 - `importance`
+- `trust_class`
+- `privacy_class`
 - `source_type`
 - `source_id`
+- `source_provider`
+- `source_model`
 - `asserted_by`
 - `observed_at`
 - `last_confirmed_at`
@@ -230,6 +236,9 @@ Required fields:
 - `supersedes`
 - `conflicts_with`
 - `evidence`
+- `verification_status`
+- `operator_confirmed`
+- `policy_tags`
 
 Meaning:
 
@@ -237,10 +246,18 @@ Meaning:
   - how likely the memory is correct
 - `importance`
   - how costly it would be to forget
+- `trust_class`
+  - how much execution authority the source should imply
+- `privacy_class`
+  - where the memory may safely travel
 - `source_type`
   - `telegram`, `vscode`, `openclaw`, `cron`, `manual`, `derived`
 - `source_id`
   - originating event id or external object id
+- `source_provider`
+  - which provider or subsystem produced the content
+- `source_model`
+  - which model, if any, produced or rewrote it
 - `asserted_by`
   - `user`, `assistant`, `system`, `derived`
 - `observed_at`
@@ -257,6 +274,12 @@ Meaning:
   - memory ids that disagree
 - `evidence`
   - compact evidence pointers or quotes
+- `verification_status`
+  - `unverified`, `derived`, `verified`, `disputed`
+- `operator_confirmed`
+  - whether a trusted operator explicitly confirmed it
+- `policy_tags`
+  - security or routing tags that must survive retrieval
 
 Without these, memory becomes lore instead of knowledge.
 
@@ -301,11 +324,17 @@ Suggested fields:
 - `valid_until`
 - `importance`
 - `confidence`
+- `trust_class`
+- `privacy_class`
 - `status`
   - `active`, `superseded`, `expired`, `conflicted`, `archived`
 - `source_type`
 - `source_id`
+- `source_provider`
+- `source_model`
 - `asserted_by`
+- `verification_status`
+- `operator_confirmed`
 - `subject_entity_id`
 - `object_entity_id`
 - `project_id`
@@ -319,6 +348,7 @@ Suggested fields:
 - `todo_json`
 - `constraints_json`
 - `metadata_json`
+- `policy_tags_json`
 - `embedding_blob`
 - `embedding_dim`
 

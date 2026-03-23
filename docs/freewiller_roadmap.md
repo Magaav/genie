@@ -12,6 +12,14 @@ The goal is not flashy autonomy. The goal is compound advantage:
 
 That is how a bootable node agent becomes stronger over time instead of simply accumulating more prompts and tools.
 
+The operating style should stay sophisticated in one very specific way:
+
+- simple enough to audit
+- explicit enough to trust
+- layered enough to survive growth
+
+Nature tends to win through efficient structure, not decorative complexity. Freewiller should do the same.
+
 ## Mission
 
 Freewiller should become a persistent, local-first agent node that:
@@ -149,8 +157,66 @@ That is what makes the node become stronger over time instead of merely older.
 4. Safety and rollback before broader control.
 5. Usefulness should drive expansion.
 6. Every new layer should survive respawn.
+7. Simple explicit systems beat clever opaque ones.
+8. Security semantics should be built in before capability expansion.
 
 ## Roadmap Phases
+
+## Phase 0A: Cost Stack
+
+Objective:
+
+- reduce token burn and provider cost before larger feature expansion
+
+Core outcomes:
+
+- provider routing
+- privacy-aware model selection
+- cost and latency logging
+- cheap and free draft lanes for non-sensitive work
+
+Concrete work:
+
+- add provider registry and task classes
+- add privacy classes to routing
+- add token, latency, and provider outcome logging
+- use local and cheap lanes for drafts, extraction, and compaction
+- reserve frontier reasoning for high-value synthesis
+
+Success criteria:
+
+- repeated low-value work no longer burns frontier budget by default
+- provider choice is explainable
+- cost data exists for future optimization
+
+## Phase 0B: Security Base
+
+Objective:
+
+- establish minimal durable security structure before access expansion
+
+Core outcomes:
+
+- trust classes
+- privacy classes
+- capability gates
+- provenance
+- prompt-injection-resistant retrieval patterns
+
+Concrete work:
+
+- add security architecture doc and policy model
+- add trust and privacy fields to memory spec
+- add memory-ingest safety policy
+- add action-gating policy
+- add untrusted-content prompt wrappers
+- plan security projection files like `BOUNDARIES.md`
+
+Success criteria:
+
+- retrieved or external text cannot silently become privileged instruction
+- security-relevant memories and actions have provenance
+- future integrations can be added without redesigning the trust model
 
 ## Phase A: Make Freewiller Indispensable
 
@@ -275,12 +341,14 @@ Success criteria:
 
 This is the next concrete implementation order.
 
-1. Finish the memory architecture upgrade.
-2. Add `PROJECT_STATE.md`.
-3. Add explicit `goals`, `procedures`, and `working_state`.
-4. Add periodic reflection and compaction.
-5. Make Telegram the daily-use surface.
-6. Let usefulness drive expansion of access.
+1. Build `Phase 0A: Cost Stack`.
+2. Build `Phase 0B: Security Base`.
+3. Finish the memory architecture upgrade.
+4. Add `PROJECT_STATE.md`.
+5. Add explicit `goals`, `procedures`, and `working_state`.
+6. Add periodic reflection and compaction.
+7. Make Telegram the daily-use surface.
+8. Let usefulness drive expansion of access.
 
 ## What Not To Do
 

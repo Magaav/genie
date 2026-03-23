@@ -58,6 +58,10 @@ The operating roadmap for how Freewiller should become more useful, reliable, an
 
 - [`docs/freewiller_roadmap.md`](docs/freewiller_roadmap.md)
 
+The security model for trust, privacy, capability gates, and prompt-injection resistance is:
+
+- [`docs/freewiller_security_architecture.md`](docs/freewiller_security_architecture.md)
+
 ## Requirements
 
 - a brand new Ubuntu VM
