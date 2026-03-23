@@ -41,7 +41,15 @@ The repo-local secret file `/local/.env` is also ignored by Git and excluded fro
 Phase 0A routing state also lives in runtime state:
 
 - provider routing policy: `/local/state/freewiller/provider-routing.env`
+- provider registry: `/local/state/freewiller/provider-registry.json`
+- provider health state: `/local/state/freewiller/telemetry/provider-health.json`
+- provider benchmark scores: `/local/state/freewiller/telemetry/provider-benchmarks.json`
 - provider usage ledger: `/local/state/freewiller/telemetry/provider-usage.jsonl`
+
+Tracked provider templates and benchmark corpus live in:
+
+- `config/provider-registry.template.json`
+- `benchmarks/providers/*.json`
 
 The shared memory layer is hybrid and compact:
 
@@ -155,8 +163,11 @@ ollama list
 curl -s http://127.0.0.1:18790/health
 curl -s http://127.0.0.1:18790/policy
 curl -s http://127.0.0.1:18790/providers
+curl -s 'http://127.0.0.1:18790/providers/ranking?task_class=summarize&privacy_class=public'
+curl -s http://127.0.0.1:18790/providers/health
 curl -s http://127.0.0.1:18790/memory/stats
 bash /local/bash/backup_freewiller.sh list
+sudo crontab -l
 ```
 
 Expected service:
@@ -220,14 +231,32 @@ The machine-facing persisted routing state remains:
 /local/state/freewiller/provider-routing.env
 ```
 
-Freewiller will read `.env` during `bash /local/bash/install_local_llm.sh` and persist the resolved routing config there. That means a respawn can recover cheap-lane settings from backup without you editing runtime files by hand.
+Freewiller will read `.env` during `bash /local/bash/install_local_llm.sh`, sync the explicit provider registry, and persist resolved routing state there. That means a respawn can recover cheap-lane settings from backup without you editing runtime files by hand.
 
-That routing state controls:
+That provider state controls:
 
 - default privacy routing
-- the cheap compatible lane
-- the public external lane
+- the explicit provider registry
+- provider health and cooldown state
+- benchmark quality scores
 - the provider usage ledger location
+
+The local-agent provider interfaces are:
+
+- `GET /providers`
+- `GET /providers/ranking`
+- `GET /providers/health`
+- `POST /providers/evaluate`
+
+The CLI interface is:
+
+```bash
+python3 /local/bash/provider_router.py providers
+python3 /local/bash/provider_router.py rank --task-class summarize --privacy-class public
+python3 /local/bash/provider_router.py health
+python3 /local/bash/provider_router.py heartbeat
+python3 /local/bash/provider_router.py evaluate --profile summarize
+```
 
 Example NVIDIA cheap-lane config in `/local/.env`:
 
@@ -242,6 +271,13 @@ Kimi K2.5 is wired in instant mode by default so it does not waste tokens on thi
 bash /local/bash/install_local_llm.sh
 bash /local/bash/install_local_agent_service.sh
 ```
+
+Supported NVIDIA secret names are:
+
+- `NVIDIA_API_KEY`
+- `FREEWILLER_NVIDIA_API_KEY`
+
+Unsupported dotted or malformed provider keys are ignored with warnings during registry sync. Do not use names like `NVIDEA_KIMI_K2.5_API_KEY`.
 
 ## OpenClaw Seed Integration
 
@@ -302,6 +338,12 @@ Bootstrap installs two root cron jobs by default:
 - hourly snapshot at `HH:05`
 - daily snapshot at `03:17 UTC`
 
+Phase 0C also installs provider maintenance jobs into the root crontab:
+
+- heartbeat every `10` minutes
+- non-frontier benchmark run every `6` hours
+- targeted frontier-judged recalibration once daily
+
 Backups are stored in:
 
 - `/local/backups/hourly`
@@ -318,6 +360,9 @@ Each archive contains a compact recovery bundle:
 - `local-llm.env`
 - `freewiller-gateway.env` if present
 - `provider-routing.env` if present
+- `provider-registry.json` if present
+- `telemetry/provider-health.json` if present
+- `telemetry/provider-benchmarks.json` if present
 - `telemetry/provider-usage.jsonl` if present
 - `journal.jsonl`
 - compact memory export with summaries, facts, TODOs, and constraints

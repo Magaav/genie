@@ -26,5 +26,6 @@ services:
     volumes:
       - /local/state/freewiller:/local/state/freewiller
       - /local/log/freewiller:/local/log/freewiller
+      - /local/.env:/local/.env:ro
       - /local/.openclaw/workspace:/local/openclaw-workspace
       - /local/.openclaw/workspace/freewiller-ingest:/local/bridge/openclaw

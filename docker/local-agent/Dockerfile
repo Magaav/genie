@@ -14,11 +14,14 @@ RUN apt-get update \
 WORKDIR /local
 
 COPY bash /local/bash
+COPY benchmarks /local/benchmarks
+COPY config /local/config
 COPY docs /local/docs
 
 RUN chmod +x \
   /local/bash/local_llm.sh \
   /local/bash/local_memory.py \
+  /local/bash/provider_router.py \
   /local/bash/local_agent.py \
   /local/bash/local_agent_http.py
 

@@ -1,0 +1,14 @@
+{
+  "profile": "extract",
+  "task_class": "extract",
+  "privacy_class": "public",
+  "cases": [
+    {
+      "name": "extract_json",
+      "task": "Return JSON only with keys facts, todos, constraints. Text: Freewiller keeps memory in SQLite, needs OpenRouter as a fallback lane, and must never send secrets to third-party providers.",
+      "require_json_keys": ["facts", "todos", "constraints"],
+      "expected_any": ["secrets", "sqlite", "openrouter"],
+      "max_chars": 420
+    }
+  ]
+}

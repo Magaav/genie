@@ -1,0 +1,66 @@
+{
+  "version": "phase0c",
+  "providers": [
+    {
+      "id": "frontier_gateway",
+      "label": "Frontier Gateway",
+      "enabled": true,
+      "provider_family": "frontier",
+      "kind": "gateway",
+      "api_key_env": "",
+      "api_base_url": "http://127.0.0.1:18789",
+      "model": "openclaw:main",
+      "api_mode": "auto",
+      "extra_body": {},
+      "trust_tier": "frontier",
+      "allowed_privacy": ["public", "internal", "private", "secret"],
+      "allowed_tasks": ["architecture", "chat", "classify", "coding", "compact", "extract", "ops", "reflect", "research_public", "summarize"],
+      "max_output_tokens": 2048,
+      "cost_input_per_million": null,
+      "cost_output_per_million": null,
+      "benchmark_profiles": ["summarize", "extract", "compact", "reflect", "research_public", "chat"]
+    },
+    {
+      "id": "nvidia_kimi_k2_5",
+      "label": "NVIDIA Kimi K2.5",
+      "enabled": true,
+      "provider_family": "nvidia",
+      "kind": "openai_compatible",
+      "api_key_env": "NVIDIA_API_KEY",
+      "api_base_url": "https://integrate.api.nvidia.com/v1",
+      "model": "moonshotai/kimi-k2.5",
+      "api_mode": "chat",
+      "extra_body": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
+      "trust_tier": "trusted_external",
+      "allowed_privacy": ["public", "internal"],
+      "allowed_tasks": ["chat", "classify", "compact", "extract", "reflect", "research_public", "summarize"],
+      "max_output_tokens": 1024,
+      "cost_input_per_million": null,
+      "cost_output_per_million": null,
+      "benchmark_profiles": ["summarize", "extract", "compact", "reflect", "research_public", "chat"]
+    },
+    {
+      "id": "openrouter_auto",
+      "label": "OpenRouter Auto",
+      "enabled": true,
+      "provider_family": "openrouter",
+      "kind": "openai_compatible",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "api_base_url": "https://openrouter.ai/api/v1",
+      "model": "openrouter/auto",
+      "api_mode": "chat",
+      "extra_body": {},
+      "trust_tier": "trusted_external",
+      "allowed_privacy": ["public", "internal"],
+      "allowed_tasks": ["chat", "classify", "compact", "extract", "reflect", "research_public", "summarize"],
+      "max_output_tokens": 1024,
+      "cost_input_per_million": null,
+      "cost_output_per_million": null,
+      "benchmark_profiles": ["summarize", "extract", "compact", "reflect", "research_public", "chat"]
+    }
+  ]
+}

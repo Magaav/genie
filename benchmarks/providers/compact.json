@@ -1,0 +1,14 @@
+{
+  "profile": "compact",
+  "task_class": "compact",
+  "privacy_class": "public",
+  "cases": [
+    {
+      "name": "compact_notes",
+      "task": "Compact these notes into a single paragraph under 240 chars: Freewiller should remember goals, procedures, user preferences, and mistakes. It should not store every chat line forever. Retrieval should prefer durable facts and current work state.",
+      "expected_all": ["goals", "retrieval"],
+      "expected_any": ["preferences", "mistakes", "durable"],
+      "max_chars": 240
+    }
+  ]
+}

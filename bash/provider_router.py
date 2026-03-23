@@ -4,15 +4,24 @@ import argparse
 import json
 import os
 import re
-from datetime import datetime, timezone
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 
+ROOT_DIR = Path("/local")
 PRIMARY_ROUTER_ENV_BASENAME = "provider-routing.env"
 LEGACY_ROUTER_ENV_BASENAME = "provider-router.env"
 PRIMARY_GATEWAY_ENV_BASENAME = "freewiller-gateway.env"
 LEGACY_GATEWAY_ENV_BASENAME = "openclaw-gateway.env"
+PRIMARY_REGISTRY_BASENAME = "provider-registry.json"
+LEGACY_REGISTRY_BASENAME = "providers.json"
+PRIMARY_REPO_ENV_FILE = ROOT_DIR / ".env"
+REGISTRY_TEMPLATE_FILE = ROOT_DIR / "config" / "provider-registry.template.json"
+BENCHMARKS_DIR = ROOT_DIR / "benchmarks" / "providers"
+LOCAL_AGENT_PY = ROOT_DIR / "bash" / "local_agent.py"
 
 TASK_CLASSES = {
     "architecture",
@@ -27,9 +36,56 @@ TASK_CLASSES = {
     "summarize",
 }
 PRIVACY_CLASSES = {"public", "internal", "private", "secret"}
+TRUST_TIERS = {"frontier", "local", "trusted_external", "public_external"}
+PROVIDER_KINDS = {"gateway", "openai_compatible"}
+HEALTH_STATES = {"healthy", "degraded", "rate_limited", "auth_error", "disabled"}
+BENCHMARK_PROFILES = {"summarize", "extract", "compact", "reflect", "research_public", "chat"}
 PUBLIC_ELIGIBLE_TASKS = {"summarize", "extract", "classify", "compact", "reflect", "research_public"}
 CHEAP_ELIGIBLE_TASKS = PUBLIC_ELIGIBLE_TASKS | {"chat"}
 FRONTIER_ONLY_TASKS = {"architecture", "coding", "ops"}
+TASK_PROFILE_MAP = {
+    "summarize": "summarize",
+    "extract": "extract",
+    "compact": "compact",
+    "reflect": "reflect",
+    "research_public": "research_public",
+    "chat": "chat",
+}
+TRUST_SCORE_MAP = {
+    "frontier": 1.0,
+    "local": 1.0,
+    "trusted_external": 0.7,
+    "public_external": 0.4,
+}
+DEFAULT_BENCHMARK_QUALITY = {
+    "frontier": 0.92,
+    "local": 0.65,
+    "trusted_external": 0.62,
+    "public_external": 0.52,
+}
+DEFAULT_COST_SCORE = {
+    "frontier": 0.10,
+    "local": 1.00,
+    "trusted_external": 0.70,
+    "public_external": 0.80,
+}
+DEFAULT_SUCCESS_RATE = {
+    "frontier": 0.99,
+    "local": 0.90,
+    "trusted_external": 0.82,
+    "public_external": 0.72,
+}
+COOLDOWN_SECONDS = {
+    "rate_limited": 600,
+    "degraded": 300,
+}
+SCORE_WEIGHTS = {
+    "benchmark_quality": 0.45,
+    "recent_success_rate": 0.20,
+    "latency_score": 0.15,
+    "cost_score": 0.10,
+    "trust_score": 0.10,
+}
 
 
 def resolve_state_dir() -> Path:
@@ -52,12 +108,36 @@ PRIMARY_ROUTER_ENV_FILE = LOCAL_LLM_DIR / PRIMARY_ROUTER_ENV_BASENAME
 LEGACY_ROUTER_ENV_FILE = LOCAL_LLM_DIR / LEGACY_ROUTER_ENV_BASENAME
 PRIMARY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / PRIMARY_GATEWAY_ENV_BASENAME
 LEGACY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / LEGACY_GATEWAY_ENV_BASENAME
+PRIMARY_REGISTRY_FILE = LOCAL_LLM_DIR / PRIMARY_REGISTRY_BASENAME
+LEGACY_REGISTRY_FILE = LOCAL_LLM_DIR / LEGACY_REGISTRY_BASENAME
 TELEMETRY_DIR = LOCAL_LLM_DIR / "telemetry"
 DEFAULT_USAGE_LEDGER_FILE = TELEMETRY_DIR / "provider-usage.jsonl"
+DEFAULT_HEALTH_FILE = TELEMETRY_DIR / "provider-health.json"
+DEFAULT_BENCHMARKS_FILE = TELEMETRY_DIR / "provider-benchmarks.json"
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_iso8601(value: str) -> datetime | None:
+    candidate = value.strip()
+    if not candidate:
+        return None
+    try:
+        return datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def ensure_parent(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def read_text_if_exists(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -77,9 +157,25 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def read_repo_env_keys() -> list[str]:
+    keys: list[str] = []
+    if not PRIMARY_REPO_ENV_FILE.exists():
+        return keys
+
+    for raw_line in PRIMARY_REPO_ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key = line.split("=", 1)[0].strip()
+        if key:
+            keys.append(key)
+    return keys
+
+
 def load_raw_env() -> dict[str, str]:
     values: dict[str, str] = {}
     for path in (
+        PRIMARY_REPO_ENV_FILE,
         PRIMARY_ROUTER_ENV_FILE,
         LEGACY_ROUTER_ENV_FILE,
         PRIMARY_GATEWAY_ENV_FILE,
@@ -88,8 +184,7 @@ def load_raw_env() -> dict[str, str]:
         values.update(parse_env_file(path))
 
     for key, value in os.environ.items():
-        if key.startswith("FREEWILLER_") or key.startswith("OPENCLAW_"):
-            values[key] = value
+        values[key] = value
     return values
 
 
@@ -99,6 +194,14 @@ def env_get(raw: dict[str, str], *keys: str, default: str = "") -> str:
         if value is not None and value != "":
             return value
     return default
+
+
+def first_present_key(raw: dict[str, str], *keys: str) -> str:
+    for key in keys:
+        value = raw.get(key)
+        if value is not None and value != "":
+            return key
+    return ""
 
 
 def env_bool(raw: dict[str, str], key: str, default: bool) -> bool:
@@ -140,6 +243,45 @@ def normalize_privacy_class(value: str) -> str:
     return ""
 
 
+def normalize_trust_tier(value: str) -> str:
+    candidate = value.strip().lower()
+    if candidate in TRUST_TIERS:
+        return candidate
+    return ""
+
+
+def normalize_kind(value: str) -> str:
+    candidate = value.strip().lower()
+    if candidate in PROVIDER_KINDS:
+        return candidate
+    return ""
+
+
+def normalize_task_list(values: Any, default: list[str]) -> list[str]:
+    if isinstance(values, list):
+        normalized = [normalize_task_class(str(item)) for item in values]
+        filtered = [item for item in normalized if item]
+        return filtered or default
+    return default
+
+
+def normalize_privacy_list(values: Any, default: list[str]) -> list[str]:
+    if isinstance(values, list):
+        normalized = [normalize_privacy_class(str(item)) for item in values]
+        filtered = [item for item in normalized if item]
+        return filtered or default
+    return default
+
+
+def normalize_profile_list(values: Any, allowed_tasks: list[str]) -> list[str]:
+    if isinstance(values, list):
+        filtered = [str(item).strip().lower() for item in values if str(item).strip().lower() in BENCHMARK_PROFILES]
+        if filtered:
+            return filtered
+    profiles = [TASK_PROFILE_MAP[task] for task in allowed_tasks if task in TASK_PROFILE_MAP]
+    return sorted(set(profiles))
+
+
 def infer_task_class(task: str) -> str:
     text = " ".join(task.lower().split())
     if any(token in text for token in ("summarize", "summary", "compress", "tl;dr")):
@@ -174,84 +316,533 @@ def infer_privacy_class(task: str, default_privacy: str) -> str:
     return default_privacy
 
 
+def detect_repo_env_warnings() -> list[str]:
+    warnings: list[str] = []
+    repo_keys = read_repo_env_keys()
+    if "NVIDEA_KIMI_K2.5_API_KEY" in repo_keys:
+        warnings.append(
+            "Unsupported .env key NVIDEA_KIMI_K2.5_API_KEY detected. Rename it to NVIDIA_API_KEY or FREEWILLER_NVIDIA_API_KEY."
+        )
+
+    for key in repo_keys:
+        if "." in key:
+            warnings.append(f"Unsupported dotted .env key ignored: {key}")
+    return sorted(set(warnings))
+
+
+def load_json_file(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return default
+
+
+def save_json_file(path: Path, payload: Any) -> None:
+    ensure_parent(path)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def default_registry_entry_frontier(raw: dict[str, str]) -> dict[str, Any]:
+    return {
+        "id": "frontier_gateway",
+        "label": "Frontier Gateway",
+        "enabled": True,
+        "provider_family": "frontier",
+        "kind": "gateway",
+        "api_key_env": "",
+        "api_base_url": env_get(raw, "FREEWILLER_GATEWAY_URL", "OPENCLAW_GATEWAY_URL"),
+        "model": env_get(raw, "FREEWILLER_MODEL", "OPENCLAW_MODEL", default="openclaw:main"),
+        "api_mode": env_get(raw, "FREEWILLER_GATEWAY_API", "OPENCLAW_GATEWAY_API", default="auto"),
+        "extra_body": {},
+        "trust_tier": "frontier",
+        "allowed_privacy": ["public", "internal", "private", "secret"],
+        "allowed_tasks": sorted(TASK_CLASSES),
+        "max_output_tokens": env_int(raw, "FREEWILLER_MAX_OUTPUT_TOKENS", env_int(raw, "OPENCLAW_MAX_OUTPUT_TOKENS", 2048)),
+        "cost_input_per_million": env_float(raw, "FREEWILLER_FRONTIER_INPUT_COST_PER_MILLION"),
+        "cost_output_per_million": env_float(raw, "FREEWILLER_FRONTIER_OUTPUT_COST_PER_MILLION"),
+        "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+    }
+
+
+def default_registry_entry_nvidia(raw: dict[str, str]) -> dict[str, Any] | None:
+    api_key_env = first_present_key(raw, "FREEWILLER_NVIDIA_API_KEY", "NVIDIA_API_KEY", "NGC_API_KEY")
+    if not api_key_env:
+        return None
+
+    model = env_get(raw, "FREEWILLER_NVIDIA_MODEL", "NVIDIA_MODEL", default="moonshotai/kimi-k2.5")
+    extra_body_raw = env_get(raw, "FREEWILLER_NVIDIA_EXTRA_BODY_JSON", "NVIDIA_EXTRA_BODY_JSON")
+    if not extra_body_raw and model.startswith("moonshotai/kimi-k2.5"):
+        extra_body_raw = '{"thinking":{"type":"disabled"}}'
+
+    extra_body: dict[str, Any] = {}
+    if extra_body_raw:
+        try:
+            decoded = json.loads(extra_body_raw)
+            if isinstance(decoded, dict):
+                extra_body = decoded
+        except json.JSONDecodeError:
+            extra_body = {}
+
+    return {
+        "id": "nvidia_kimi_k2_5",
+        "label": "NVIDIA Kimi K2.5",
+        "enabled": True,
+        "provider_family": "nvidia",
+        "kind": "openai_compatible",
+        "api_key_env": api_key_env,
+        "api_base_url": env_get(raw, "FREEWILLER_NVIDIA_API_BASE_URL", "NVIDIA_API_BASE_URL", default="https://integrate.api.nvidia.com/v1"),
+        "model": model,
+        "api_mode": env_get(raw, "FREEWILLER_NVIDIA_API_MODE", "NVIDIA_API_MODE", default="chat"),
+        "extra_body": extra_body,
+        "trust_tier": "trusted_external",
+        "allowed_privacy": ["public", "internal"],
+        "allowed_tasks": sorted(CHEAP_ELIGIBLE_TASKS),
+        "max_output_tokens": env_int(raw, "FREEWILLER_NVIDIA_MAX_OUTPUT_TOKENS", env_int(raw, "NVIDIA_MAX_OUTPUT_TOKENS", 1024)),
+        "cost_input_per_million": env_float(raw, "FREEWILLER_NVIDIA_INPUT_COST_PER_MILLION"),
+        "cost_output_per_million": env_float(raw, "FREEWILLER_NVIDIA_OUTPUT_COST_PER_MILLION"),
+        "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+    }
+
+
+def default_registry_entry_openrouter(raw: dict[str, str]) -> dict[str, Any] | None:
+    api_key_env = first_present_key(raw, "FREEWILLER_OPENROUTER_API_KEY", "OPENROUTER_API_KEY")
+    if not api_key_env:
+        return None
+
+    return {
+        "id": "openrouter_auto",
+        "label": "OpenRouter Auto",
+        "enabled": True,
+        "provider_family": "openrouter",
+        "kind": "openai_compatible",
+        "api_key_env": api_key_env,
+        "api_base_url": env_get(raw, "FREEWILLER_OPENROUTER_API_BASE_URL", "OPENROUTER_API_BASE_URL", default="https://openrouter.ai/api/v1"),
+        "model": env_get(raw, "FREEWILLER_OPENROUTER_MODEL", "OPENROUTER_MODEL", default="openrouter/auto"),
+        "api_mode": env_get(raw, "FREEWILLER_OPENROUTER_API_MODE", "OPENROUTER_API_MODE", default="chat"),
+        "extra_body": {},
+        "trust_tier": "trusted_external",
+        "allowed_privacy": ["public", "internal"],
+        "allowed_tasks": sorted(CHEAP_ELIGIBLE_TASKS),
+        "max_output_tokens": env_int(raw, "FREEWILLER_OPENROUTER_MAX_OUTPUT_TOKENS", env_int(raw, "OPENROUTER_MAX_OUTPUT_TOKENS", 1024)),
+        "cost_input_per_million": env_float(raw, "FREEWILLER_OPENROUTER_INPUT_COST_PER_MILLION"),
+        "cost_output_per_million": env_float(raw, "FREEWILLER_OPENROUTER_OUTPUT_COST_PER_MILLION"),
+        "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+    }
+
+
+def default_registry_entry_legacy(raw: dict[str, str], *, public_only: bool) -> dict[str, Any] | None:
+    prefix = "FREEWILLER_PUBLIC" if public_only else "FREEWILLER_CHEAP"
+    api_base_url = env_get(raw, f"{prefix}_API_BASE_URL")
+    api_key = env_get(raw, f"{prefix}_API_KEY")
+    model = env_get(raw, f"{prefix}_MODEL")
+    if not api_base_url or not api_key or not model:
+        return None
+
+    return {
+        "id": "legacy_public" if public_only else "legacy_cheap",
+        "label": "Legacy Public Lane" if public_only else "Legacy Cheap Lane",
+        "enabled": True,
+        "provider_family": "legacy",
+        "kind": "openai_compatible",
+        "api_key_env": f"{prefix}_API_KEY",
+        "api_base_url": api_base_url,
+        "model": model,
+        "api_mode": env_get(raw, f"{prefix}_API_MODE", default="chat"),
+        "extra_body": {},
+        "trust_tier": "public_external" if public_only else "trusted_external",
+        "allowed_privacy": ["public"] if public_only else ["public", "internal"],
+        "allowed_tasks": sorted(PUBLIC_ELIGIBLE_TASKS if public_only else CHEAP_ELIGIBLE_TASKS),
+        "max_output_tokens": env_int(raw, f"{prefix}_MAX_OUTPUT_TOKENS", 1024),
+        "cost_input_per_million": env_float(raw, f"{prefix}_INPUT_COST_PER_MILLION"),
+        "cost_output_per_million": env_float(raw, f"{prefix}_OUTPUT_COST_PER_MILLION"),
+        "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+    }
+
+
+def default_registry_entries(raw: dict[str, str]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = [default_registry_entry_frontier(raw)]
+    nvidia_entry = default_registry_entry_nvidia(raw)
+    openrouter_entry = default_registry_entry_openrouter(raw)
+    legacy_cheap_entry = default_registry_entry_legacy(raw, public_only=False)
+    legacy_public_entry = default_registry_entry_legacy(raw, public_only=True)
+
+    if nvidia_entry:
+        legacy_cheap_entry = None
+    if openrouter_entry:
+        legacy_public_entry = None
+
+    for candidate in (
+        nvidia_entry,
+        openrouter_entry,
+        legacy_cheap_entry,
+        legacy_public_entry,
+    ):
+        if candidate:
+            entries.append(candidate)
+    return entries
+
+
+def normalize_provider_entry(raw_entry: dict[str, Any]) -> dict[str, Any]:
+    entry = dict(raw_entry)
+    entry_id = sanitize_provider_name(str(entry.get("id", "")))
+    provider_family = sanitize_provider_name(str(entry.get("provider_family", "generic"))) or "generic"
+    kind = normalize_kind(str(entry.get("kind", "openai_compatible"))) or "openai_compatible"
+    trust_tier = normalize_trust_tier(str(entry.get("trust_tier", "trusted_external"))) or "trusted_external"
+    enabled = bool(entry.get("enabled", True))
+    allowed_privacy = normalize_privacy_list(entry.get("allowed_privacy"), ["public", "internal"])
+    allowed_tasks = normalize_task_list(entry.get("allowed_tasks"), sorted(CHEAP_ELIGIBLE_TASKS))
+    max_output_tokens = int(entry.get("max_output_tokens", 1024))
+    api_mode = str(entry.get("api_mode", "chat")).strip().lower() or "chat"
+    extra_body = entry.get("extra_body")
+    if not isinstance(extra_body, dict):
+        extra_body = {}
+
+    return {
+        "id": entry_id,
+        "label": str(entry.get("label", entry_id.replace("_", " ").title())),
+        "enabled": enabled,
+        "provider_family": provider_family,
+        "kind": kind,
+        "api_key_env": str(entry.get("api_key_env", "")).strip(),
+        "api_base_url": str(entry.get("api_base_url", "")).strip(),
+        "model": str(entry.get("model", "")).strip(),
+        "api_mode": api_mode,
+        "extra_body": extra_body,
+        "trust_tier": trust_tier,
+        "allowed_privacy": allowed_privacy,
+        "allowed_tasks": allowed_tasks,
+        "max_output_tokens": max_output_tokens,
+        "cost_input_per_million": entry.get("cost_input_per_million"),
+        "cost_output_per_million": entry.get("cost_output_per_million"),
+        "benchmark_profiles": normalize_profile_list(entry.get("benchmark_profiles"), allowed_tasks),
+    }
+
+
+def merge_registry_entries(existing_entries: list[dict[str, Any]], auto_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    auto_index = {entry["id"]: normalize_provider_entry(entry) for entry in auto_entries}
+    auto_managed_ids = {"frontier_gateway", "nvidia_kimi_k2_5", "openrouter_auto", "legacy_cheap", "legacy_public"}
+
+    for entry in auto_entries:
+        normalized = normalize_provider_entry(entry)
+        merged[normalized["id"]] = normalized
+
+    for raw_entry in existing_entries:
+        normalized = normalize_provider_entry(raw_entry)
+        auto_entry = auto_index.get(normalized["id"])
+        if auto_entry:
+            combined = dict(auto_entry)
+            for key, value in normalized.items():
+                if value not in ("", [], {}, None):
+                    combined[key] = value
+                elif key in {"enabled"}:
+                    combined[key] = value
+            merged[normalized["id"]] = normalize_provider_entry(combined)
+        else:
+            if normalized["id"] in auto_managed_ids:
+                continue
+            merged[normalized["id"]] = normalized
+
+    return [merged[key] for key in sorted(merged.keys())]
+
+
+def load_registry_payload() -> dict[str, Any]:
+    for path in (PRIMARY_REGISTRY_FILE, LEGACY_REGISTRY_FILE):
+        payload = load_json_file(path, {})
+        if isinstance(payload, dict) and isinstance(payload.get("providers"), list):
+            return payload
+        if isinstance(payload, list):
+            return {"version": "phase0c", "providers": payload}
+    return {"version": "phase0c", "providers": []}
+
+
+def sync_registry(write: bool = False) -> dict[str, Any]:
+    raw = load_raw_env()
+    current_payload = load_registry_payload()
+    merged_entries = merge_registry_entries(current_payload.get("providers", []), default_registry_entries(raw))
+    warnings = detect_repo_env_warnings()
+    payload = {
+        "version": "phase0c",
+        "updated_at": utc_now(),
+        "providers": merged_entries,
+        "warnings": warnings,
+    }
+    if write:
+        save_json_file(PRIMARY_REGISTRY_FILE, payload)
+    return payload
+
+
+def ensure_registry_synced() -> dict[str, Any]:
+    if PRIMARY_REGISTRY_FILE.exists():
+        payload = sync_registry(write=False)
+        return payload
+    return sync_registry(write=True)
+
+
+def load_health_store() -> dict[str, Any]:
+    payload = load_json_file(DEFAULT_HEALTH_FILE, {})
+    if not isinstance(payload, dict):
+        payload = {}
+    if not isinstance(payload.get("providers"), dict):
+        payload["providers"] = {}
+    payload.setdefault("version", "phase0c")
+    payload.setdefault("updated_at", "")
+    return payload
+
+
+def save_health_store(payload: dict[str, Any]) -> None:
+    payload["updated_at"] = utc_now()
+    save_json_file(DEFAULT_HEALTH_FILE, payload)
+
+
+def load_benchmark_store() -> dict[str, Any]:
+    payload = load_json_file(DEFAULT_BENCHMARKS_FILE, {})
+    if not isinstance(payload, dict):
+        payload = {}
+    if not isinstance(payload.get("providers"), dict):
+        payload["providers"] = {}
+    payload.setdefault("version", "phase0c")
+    payload.setdefault("updated_at", "")
+    return payload
+
+
+def save_benchmark_store(payload: dict[str, Any]) -> None:
+    payload["updated_at"] = utc_now()
+    save_json_file(DEFAULT_BENCHMARKS_FILE, payload)
+
+
+def health_entry_default(provider_id: str, provider_enabled: bool) -> dict[str, Any]:
+    state = "healthy" if provider_enabled else "disabled"
+    return {
+        "provider_id": provider_id,
+        "state": state,
+        "state_reason": "configured" if provider_enabled else "provider disabled in registry",
+        "cooldown_until": "",
+        "last_error": "",
+        "last_checked_at": "",
+        "last_success_at": "",
+        "last_latency_ms": None,
+        "successes": 0,
+        "failures": 0,
+        "success_rate": 0.0,
+        "consecutive_failures": 0,
+        "rate_limit_count": 0,
+        "auth_error_count": 0,
+    }
+
+
+def classify_error_message(error_message: str) -> str:
+    text = error_message.lower()
+    if "429" in text or "rate limit" in text:
+        return "rate_limited"
+    if "401" in text or "403" in text or "unauthorized" in text or "forbidden" in text or "invalid api key" in text:
+        return "auth_error"
+    if "timed out" in text or "timeout" in text or "connection reset" in text or "remotedisconnected" in text:
+        return "degraded"
+    if re.search(r"http\s+5\d\d", text):
+        return "degraded"
+    return "degraded"
+
+
+def record_provider_result(
+    provider_id: str,
+    *,
+    provider_enabled: bool = True,
+    ok: bool,
+    latency_ms: int,
+    error_message: str = "",
+) -> dict[str, Any]:
+    store = load_health_store()
+    entry = dict(store["providers"].get(provider_id, health_entry_default(provider_id, provider_enabled)))
+    entry["last_checked_at"] = utc_now()
+    entry["last_latency_ms"] = latency_ms
+
+    if ok:
+        entry["successes"] = int(entry.get("successes", 0)) + 1
+        total = int(entry.get("successes", 0)) + int(entry.get("failures", 0))
+        entry["success_rate"] = round(entry["successes"] / max(total, 1), 4)
+        entry["consecutive_failures"] = 0
+        entry["state"] = "healthy" if provider_enabled else "disabled"
+        entry["state_reason"] = "provider responded successfully" if provider_enabled else "provider disabled in registry"
+        entry["cooldown_until"] = ""
+        entry["last_error"] = ""
+        entry["last_success_at"] = utc_now()
+    else:
+        error_kind = classify_error_message(error_message)
+        entry["failures"] = int(entry.get("failures", 0)) + 1
+        total = int(entry.get("successes", 0)) + int(entry.get("failures", 0))
+        entry["success_rate"] = round(int(entry.get("successes", 0)) / max(total, 1), 4)
+        entry["consecutive_failures"] = int(entry.get("consecutive_failures", 0)) + 1
+        entry["last_error"] = error_message
+
+        if error_kind == "auth_error":
+            entry["state"] = "auth_error"
+            entry["state_reason"] = "provider authentication failed"
+            entry["auth_error_count"] = int(entry.get("auth_error_count", 0)) + 1
+            entry["cooldown_until"] = ""
+        elif error_kind == "rate_limited":
+            entry["state"] = "rate_limited"
+            entry["state_reason"] = "provider rate limited recent requests"
+            entry["rate_limit_count"] = int(entry.get("rate_limit_count", 0)) + 1
+            entry["cooldown_until"] = (datetime.now(timezone.utc) + timedelta(seconds=COOLDOWN_SECONDS["rate_limited"])).isoformat()
+        else:
+            entry["state"] = "degraded"
+            entry["state_reason"] = "provider request failed recently"
+            entry["cooldown_until"] = (datetime.now(timezone.utc) + timedelta(seconds=COOLDOWN_SECONDS["degraded"])).isoformat()
+
+    store["providers"][provider_id] = entry
+    save_health_store(store)
+    return entry
+
+
+def provider_in_cooldown(health_entry: dict[str, Any]) -> bool:
+    cooldown_until = parse_iso8601(str(health_entry.get("cooldown_until", "")))
+    if not cooldown_until:
+        return False
+    return cooldown_until > datetime.now(timezone.utc)
+
+
+def benchmark_quality_for(provider_id: str, task_class: str, benchmark_store: dict[str, Any], trust_tier: str) -> float:
+    provider_entry = benchmark_store.get("providers", {}).get(provider_id, {})
+    profiles = provider_entry.get("profiles", {})
+    profile_name = TASK_PROFILE_MAP.get(task_class, "")
+    if profile_name and isinstance(profiles.get(profile_name), dict):
+        score = profiles[profile_name].get("score")
+        if isinstance(score, (int, float)):
+            return max(0.0, min(1.0, float(score)))
+    aggregate = provider_entry.get("aggregate_quality")
+    if isinstance(aggregate, (int, float)):
+        return max(0.0, min(1.0, float(aggregate)))
+    return DEFAULT_BENCHMARK_QUALITY.get(trust_tier, 0.5)
+
+
+def latency_score_for(health_entry: dict[str, Any]) -> float:
+    latency_ms = health_entry.get("last_latency_ms")
+    if not isinstance(latency_ms, (int, float)) or latency_ms <= 0:
+        return 0.6
+    return max(0.1, min(1.0, 1.0 / (1.0 + (float(latency_ms) / 4000.0))))
+
+
+def cost_score_for(provider: dict[str, Any]) -> float:
+    input_rate = provider.get("cost_input_per_million")
+    output_rate = provider.get("cost_output_per_million")
+    if isinstance(input_rate, (int, float)) or isinstance(output_rate, (int, float)):
+        total_rate = float(input_rate or 0.0) + float(output_rate or 0.0)
+        return max(0.05, min(1.0, 1.0 / (1.0 + total_rate / 6.0)))
+    return DEFAULT_COST_SCORE.get(provider.get("trust_tier", "trusted_external"), 0.5)
+
+
+def success_rate_for(health_entry: dict[str, Any], trust_tier: str) -> float:
+    success_rate = health_entry.get("success_rate")
+    if isinstance(success_rate, (int, float)) and success_rate > 0:
+        return max(0.0, min(1.0, float(success_rate)))
+    return DEFAULT_SUCCESS_RATE.get(trust_tier, 0.75)
+
+
+def provider_should_be_eligible(provider: dict[str, Any], task_class: str, privacy_class: str) -> tuple[bool, str]:
+    if not provider.get("enabled", True):
+        return False, "provider disabled"
+    if not provider.get("configured", False):
+        return False, "provider not configured"
+    if privacy_class not in provider.get("allowed_privacy", []):
+        return False, f"privacy class {privacy_class} not allowed"
+    if task_class not in provider.get("allowed_tasks", []):
+        return False, f"task class {task_class} not allowed"
+
+    health_entry = provider.get("health", {})
+    state = health_entry.get("state", "healthy")
+    if state in {"disabled", "auth_error"}:
+        return False, f"provider state {state}"
+    if provider_in_cooldown(health_entry):
+        return False, f"provider cooling down until {health_entry.get('cooldown_until', '')}"
+    return True, "eligible"
+
+
+def provider_public_view(provider: dict[str, Any], *, include_score_components: bool = False) -> dict[str, Any]:
+    view = {
+        "id": provider["id"],
+        "label": provider.get("label", provider["id"]),
+        "kind": provider["kind"],
+        "configured": provider.get("configured", False),
+        "enabled": provider.get("enabled", True),
+        "model": provider.get("model", ""),
+        "provider_family": provider.get("provider_family", "generic"),
+        "trust_tier": provider.get("trust_tier", "trusted_external"),
+        "allowed_privacy": provider.get("allowed_privacy", []),
+        "allowed_tasks": provider.get("allowed_tasks", []),
+        "max_output_tokens": provider.get("max_output_tokens"),
+        "health": {
+            "state": provider.get("health", {}).get("state", "healthy"),
+            "state_reason": provider.get("health", {}).get("state_reason", ""),
+            "cooldown_until": provider.get("health", {}).get("cooldown_until", ""),
+            "last_latency_ms": provider.get("health", {}).get("last_latency_ms"),
+            "success_rate": provider.get("health", {}).get("success_rate"),
+        },
+    }
+    if provider.get("api_base_url"):
+        view["api_base_url"] = provider["api_base_url"]
+    if provider.get("api_mode"):
+        view["api_mode"] = provider["api_mode"]
+    if provider.get("benchmark_profiles"):
+        view["benchmark_profiles"] = provider["benchmark_profiles"]
+    if include_score_components and provider.get("score_components"):
+        view["score"] = provider.get("score")
+        view["score_components"] = provider.get("score_components")
+    elif provider.get("score") is not None:
+        view["score"] = provider.get("score")
+    return view
+
+
 def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
+    registry_payload = ensure_registry_synced()
+    health_store = load_health_store()
+    benchmark_store = load_benchmark_store()
     default_privacy = normalize_privacy_class(env_get(raw, "FREEWILLER_ROUTER_DEFAULT_PRIVACY", default="internal")) or "internal"
     allow_public_external = env_bool(raw, "FREEWILLER_ROUTER_ALLOW_PUBLIC_EXTERNAL", True)
     allow_internal_cheap = env_bool(raw, "FREEWILLER_ROUTER_ALLOW_INTERNAL_CHEAP", True)
     usage_ledger_file = env_get(raw, "FREEWILLER_USAGE_LEDGER_FILE", default=str(DEFAULT_USAGE_LEDGER_FILE))
 
-    cheap_allowed_privacy = ["public", "internal"] if allow_internal_cheap else ["public"]
+    providers: dict[str, Any] = {}
+    warnings = list(registry_payload.get("warnings", []))
 
-    providers = {
-        "frontier_gateway": {
-            "id": "frontier_gateway",
-            "label": "Frontier Gateway",
-            "kind": "gateway",
-            "provider_family": "frontier",
-            "configured": bool(
+    for raw_entry in registry_payload.get("providers", []):
+        entry = normalize_provider_entry(raw_entry)
+        if entry["kind"] == "gateway":
+            configured = bool(
                 env_get(raw, "FREEWILLER_GATEWAY_URL", "OPENCLAW_GATEWAY_URL")
                 and env_get(raw, "FREEWILLER_GATEWAY_TOKEN", "OPENCLAW_GATEWAY_TOKEN")
-            ),
-            "model": env_get(raw, "FREEWILLER_MODEL", "OPENCLAW_MODEL", default="openclaw:main"),
-            "allowed_privacy": ["public", "internal", "private", "secret"],
-            "max_output_tokens": env_int(
-                raw,
-                "FREEWILLER_MAX_OUTPUT_TOKENS",
-                env_int(raw, "OPENCLAW_MAX_OUTPUT_TOKENS", 2048),
-            ),
-            "api_base_url": env_get(raw, "FREEWILLER_GATEWAY_URL", "OPENCLAW_GATEWAY_URL"),
-            "input_cost_per_million": env_float(raw, "FREEWILLER_FRONTIER_INPUT_COST_PER_MILLION"),
-            "output_cost_per_million": env_float(raw, "FREEWILLER_FRONTIER_OUTPUT_COST_PER_MILLION"),
-        },
-        "cheap_openai": {
-            "id": "cheap_openai",
-            "label": "Cheap Compatible",
-            "kind": "openai_compatible",
-            "provider_family": env_get(raw, "FREEWILLER_CHEAP_PROVIDER_FAMILY", default="generic"),
-            "configured": bool(
-                env_get(raw, "FREEWILLER_CHEAP_API_BASE_URL")
-                and env_get(raw, "FREEWILLER_CHEAP_API_KEY")
-                and env_get(raw, "FREEWILLER_CHEAP_MODEL")
-            ),
-            "model": env_get(raw, "FREEWILLER_CHEAP_MODEL"),
-            "allowed_privacy": cheap_allowed_privacy,
-            "max_output_tokens": env_int(raw, "FREEWILLER_CHEAP_MAX_OUTPUT_TOKENS", 1024),
-            "api_base_url": env_get(raw, "FREEWILLER_CHEAP_API_BASE_URL"),
-            "api_key": env_get(raw, "FREEWILLER_CHEAP_API_KEY"),
-            "api_mode": env_get(raw, "FREEWILLER_CHEAP_API_MODE", default="chat").strip().lower() or "chat",
-            "extra_body_json": env_get(raw, "FREEWILLER_CHEAP_EXTRA_BODY_JSON"),
-            "input_cost_per_million": env_float(raw, "FREEWILLER_CHEAP_INPUT_COST_PER_MILLION"),
-            "output_cost_per_million": env_float(raw, "FREEWILLER_CHEAP_OUTPUT_COST_PER_MILLION"),
-        },
-        "public_openai": {
-            "id": "public_openai",
-            "label": "Public External",
-            "kind": "openai_compatible",
-            "provider_family": env_get(raw, "FREEWILLER_PUBLIC_PROVIDER_FAMILY", default="generic"),
-            "configured": bool(
-                env_get(raw, "FREEWILLER_PUBLIC_API_BASE_URL")
-                and env_get(raw, "FREEWILLER_PUBLIC_API_KEY")
-                and env_get(raw, "FREEWILLER_PUBLIC_MODEL")
-            ),
-            "model": env_get(raw, "FREEWILLER_PUBLIC_MODEL"),
-            "allowed_privacy": ["public"],
-            "max_output_tokens": env_int(raw, "FREEWILLER_PUBLIC_MAX_OUTPUT_TOKENS", 1024),
-            "api_base_url": env_get(raw, "FREEWILLER_PUBLIC_API_BASE_URL"),
-            "api_key": env_get(raw, "FREEWILLER_PUBLIC_API_KEY"),
-            "api_mode": env_get(raw, "FREEWILLER_PUBLIC_API_MODE", default="chat").strip().lower() or "chat",
-            "extra_body_json": env_get(raw, "FREEWILLER_PUBLIC_EXTRA_BODY_JSON"),
-            "input_cost_per_million": env_float(raw, "FREEWILLER_PUBLIC_INPUT_COST_PER_MILLION"),
-            "output_cost_per_million": env_float(raw, "FREEWILLER_PUBLIC_OUTPUT_COST_PER_MILLION"),
-        },
-    }
+            )
+            entry["api_base_url"] = env_get(raw, "FREEWILLER_GATEWAY_URL", "OPENCLAW_GATEWAY_URL", default=entry["api_base_url"])
+            entry["model"] = env_get(raw, "FREEWILLER_MODEL", "OPENCLAW_MODEL", default=entry["model"])
+        else:
+            api_key_env = entry.get("api_key_env", "")
+            resolved_api_key = env_get(raw, api_key_env) if api_key_env else ""
+            configured = bool(entry["api_base_url"] and entry["model"] and resolved_api_key)
+            entry["api_key"] = resolved_api_key
+
+        health_entry = dict(health_store.get("providers", {}).get(entry["id"], health_entry_default(entry["id"], entry["enabled"])))
+        if not entry["enabled"]:
+            health_entry["state"] = "disabled"
+            health_entry["state_reason"] = "provider disabled in registry"
+        entry["health"] = health_entry
+        entry["configured"] = configured
+        providers[entry["id"]] = entry
 
     return {
-        "policy_version": "phase0a",
+        "policy_version": "phase0c",
         "default_privacy": default_privacy,
         "allow_public_external": allow_public_external,
         "allow_internal_cheap": allow_internal_cheap,
         "usage_ledger_file": usage_ledger_file,
+        "registry_file": str(PRIMARY_REGISTRY_FILE),
+        "health_file": str(DEFAULT_HEALTH_FILE),
+        "benchmarks_file": str(DEFAULT_BENCHMARKS_FILE),
+        "warnings": warnings,
         "providers": providers,
+        "health_store": health_store,
+        "benchmark_store": benchmark_store,
     }
 
 
@@ -259,23 +850,17 @@ def load_router_config() -> dict[str, Any]:
     return build_provider_config(load_raw_env())
 
 
-def provider_public_view(provider: dict[str, Any]) -> dict[str, Any]:
-    view = {
-        "id": provider["id"],
-        "label": provider["label"],
-        "kind": provider["kind"],
-        "configured": provider["configured"],
-        "model": provider.get("model", ""),
-        "allowed_privacy": provider.get("allowed_privacy", []),
-        "max_output_tokens": provider.get("max_output_tokens"),
-    }
-    if provider.get("api_base_url"):
-        view["api_base_url"] = provider["api_base_url"]
-    if provider.get("api_mode"):
-        view["api_mode"] = provider["api_mode"]
-    if provider.get("provider_family"):
-        view["provider_family"] = provider["provider_family"]
-    return view
+def summarize_rankings(config: dict[str, Any]) -> dict[str, list[str]]:
+    summary: dict[str, list[str]] = {}
+    for task_class in ("summarize", "extract", "compact", "reflect", "chat", "research_public"):
+        ranking = choose_provider(
+            task_class.replace("_", " "),
+            task_class=task_class,
+            privacy_class="public",
+            _preloaded_config=config,
+        )
+        summary[task_class] = [item["id"] for item in ranking["ranked_providers"]]
+    return summary
 
 
 def public_policy_view(config: dict[str, Any]) -> dict[str, Any]:
@@ -285,8 +870,32 @@ def public_policy_view(config: dict[str, Any]) -> dict[str, Any]:
         "allow_public_external": config["allow_public_external"],
         "allow_internal_cheap": config["allow_internal_cheap"],
         "usage_ledger_file": config["usage_ledger_file"],
+        "registry_file": config["registry_file"],
+        "health_file": config["health_file"],
+        "benchmarks_file": config["benchmarks_file"],
+        "warnings": config["warnings"],
+        "ranking_summary": summarize_rankings(config),
         "providers": [provider_public_view(provider) for provider in config["providers"].values()],
     }
+
+
+def build_score(provider: dict[str, Any], task_class: str, benchmark_store: dict[str, Any]) -> tuple[float, dict[str, float]]:
+    trust_tier = provider.get("trust_tier", "trusted_external")
+    benchmark_quality = benchmark_quality_for(provider["id"], task_class, benchmark_store, trust_tier)
+    recent_success_rate = success_rate_for(provider.get("health", {}), trust_tier)
+    latency_score = latency_score_for(provider.get("health", {}))
+    cost_score = cost_score_for(provider)
+    trust_score = TRUST_SCORE_MAP.get(trust_tier, 0.5)
+
+    components = {
+        "benchmark_quality": round(benchmark_quality, 4),
+        "recent_success_rate": round(recent_success_rate, 4),
+        "latency_score": round(latency_score, 4),
+        "cost_score": round(cost_score, 4),
+        "trust_score": round(trust_score, 4),
+    }
+    score = sum(components[key] * SCORE_WEIGHTS[key] for key in SCORE_WEIGHTS)
+    return round(score, 4), components
 
 
 def choose_provider(
@@ -295,8 +904,9 @@ def choose_provider(
     task_class: str = "",
     privacy_class: str = "",
     provider_override: str = "",
+    _preloaded_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    config = load_router_config()
+    config = _preloaded_config or load_router_config()
     providers = config["providers"]
     resolved_task_class = normalize_task_class(task_class) or infer_task_class(task)
     resolved_privacy_class = normalize_privacy_class(privacy_class) or infer_privacy_class(task, config["default_privacy"])
@@ -306,46 +916,109 @@ def choose_provider(
         selected = providers.get(override_id)
         if not selected:
             raise RuntimeError(f"Unknown provider override: {provider_override}")
-        if resolved_privacy_class not in selected.get("allowed_privacy", []):
-            raise RuntimeError(
-                f"Provider {override_id} is not allowed for privacy class {resolved_privacy_class}"
-            )
-        if not selected.get("configured"):
-            raise RuntimeError(f"Provider {override_id} is not configured")
-        reason = "explicit provider override"
-    elif resolved_privacy_class in {"private", "secret"}:
-        selected = providers["frontier_gateway"]
-        reason = f"{resolved_privacy_class} data stays on the frontier lane"
-    elif resolved_task_class in FRONTIER_ONLY_TASKS:
-        selected = providers["frontier_gateway"]
-        reason = f"{resolved_task_class} tasks stay on the frontier lane"
-    elif (
-        resolved_privacy_class == "public"
-        and config["allow_public_external"]
-        and providers["public_openai"]["configured"]
-        and resolved_task_class in PUBLIC_ELIGIBLE_TASKS
-    ):
-        selected = providers["public_openai"]
-        reason = "public low-risk task routed to the public external lane"
-    elif (
-        resolved_privacy_class in providers["cheap_openai"]["allowed_privacy"]
-        and providers["cheap_openai"]["configured"]
-        and resolved_task_class in CHEAP_ELIGIBLE_TASKS
-    ):
-        selected = providers["cheap_openai"]
-        reason = "low-cost compatible lane available for this task class"
+        eligible, reason = provider_should_be_eligible(selected, resolved_task_class, resolved_privacy_class)
+        if not eligible:
+            raise RuntimeError(f"Provider {override_id} is not eligible: {reason}")
+        score, components = build_score(selected, resolved_task_class, config["benchmark_store"])
+        selected = {**selected, "score": score, "score_components": components}
+        ranked_providers = [provider_public_view(selected, include_score_components=True)]
+        reason_text = "explicit provider override"
+        return {
+            "policy_version": config["policy_version"],
+            "task_class": resolved_task_class,
+            "privacy_class": resolved_privacy_class,
+            "selected_provider": ranked_providers[0],
+            "ranked_providers": ranked_providers,
+            "reason": reason_text,
+            "usage_ledger_file": config["usage_ledger_file"],
+            "providers": [provider_public_view(provider) for provider in providers.values()],
+            "warnings": config["warnings"],
+        }
+
+    if resolved_privacy_class in {"private", "secret"} or resolved_task_class in FRONTIER_ONLY_TASKS:
+        frontier = providers.get("frontier_gateway")
+        if not frontier or not frontier.get("configured", False):
+            raise RuntimeError("Frontier gateway is required for private/secret/frontier-only tasks")
+        score, components = build_score(frontier, resolved_task_class, config["benchmark_store"])
+        selected = {**frontier, "score": score, "score_components": components}
+        reason_text = (
+            f"{resolved_privacy_class} data stays on the frontier lane"
+            if resolved_privacy_class in {"private", "secret"}
+            else f"{resolved_task_class} tasks stay on the frontier lane"
+        )
+        return {
+            "policy_version": config["policy_version"],
+            "task_class": resolved_task_class,
+            "privacy_class": resolved_privacy_class,
+            "selected_provider": provider_public_view(selected, include_score_components=True),
+            "ranked_providers": [provider_public_view(selected, include_score_components=True)],
+            "reason": reason_text,
+            "usage_ledger_file": config["usage_ledger_file"],
+            "providers": [provider_public_view(provider) for provider in providers.values()],
+            "warnings": config["warnings"],
+        }
+
+    non_frontier_candidates: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    frontier_provider = providers.get("frontier_gateway")
+
+    for provider in providers.values():
+        if provider["id"] == "frontier_gateway":
+            continue
+
+        if resolved_privacy_class == "public" and not config["allow_public_external"]:
+            skipped.append({"id": provider["id"], "reason": "public external routing disabled"})
+            continue
+
+        if resolved_privacy_class == "internal" and not config["allow_internal_cheap"]:
+            skipped.append({"id": provider["id"], "reason": "internal cheap routing disabled"})
+            continue
+
+        eligible, reason = provider_should_be_eligible(provider, resolved_task_class, resolved_privacy_class)
+        if not eligible:
+            skipped.append({"id": provider["id"], "reason": reason})
+            continue
+
+        score, components = build_score(provider, resolved_task_class, config["benchmark_store"])
+        non_frontier_candidates.append({**provider, "score": score, "score_components": components})
+
+    non_frontier_candidates.sort(key=lambda item: (item["score"], item["id"]), reverse=True)
+    ranked_resolved: list[dict[str, Any]] = list(non_frontier_candidates)
+
+    frontier_added_as_fallback = False
+    if frontier_provider and frontier_provider.get("configured", False):
+        eligible_frontier, _ = provider_should_be_eligible(frontier_provider, resolved_task_class, resolved_privacy_class)
+        if eligible_frontier:
+            frontier_score, frontier_components = build_score(frontier_provider, resolved_task_class, config["benchmark_store"])
+            frontier_candidate = {**frontier_provider, "score": frontier_score, "score_components": frontier_components}
+            if ranked_resolved:
+                ranked_resolved.append(frontier_candidate)
+                frontier_added_as_fallback = True
+            else:
+                ranked_resolved = [frontier_candidate]
+
+    if not ranked_resolved:
+        raise RuntimeError("No configured provider is eligible for this task")
+
+    selected_provider = ranked_resolved[0]
+    if frontier_added_as_fallback:
+        reason_text = "ranked non-frontier providers first with frontier fallback"
+    elif selected_provider["id"] == "frontier_gateway":
+        reason_text = "defaulting to the frontier lane"
     else:
-        selected = providers["frontier_gateway"]
-        reason = "defaulting to the frontier lane"
+        reason_text = "ranked eligible non-frontier providers by quality, reliability, latency, cost, and trust"
 
     return {
         "policy_version": config["policy_version"],
         "task_class": resolved_task_class,
         "privacy_class": resolved_privacy_class,
-        "selected_provider": provider_public_view(selected),
-        "reason": reason,
+        "selected_provider": provider_public_view(selected_provider, include_score_components=True),
+        "ranked_providers": [provider_public_view(item, include_score_components=True) for item in ranked_resolved],
+        "reason": reason_text,
         "usage_ledger_file": config["usage_ledger_file"],
         "providers": [provider_public_view(provider) for provider in providers.values()],
+        "warnings": config["warnings"],
+        "skipped_providers": skipped,
     }
 
 
@@ -367,13 +1040,13 @@ def estimate_cost_usd(provider_id: str, usage: dict[str, int]) -> float | None:
     if not provider:
         return None
 
-    input_rate = provider.get("input_cost_per_million")
-    output_rate = provider.get("output_cost_per_million")
+    input_rate = provider.get("cost_input_per_million")
+    output_rate = provider.get("cost_output_per_million")
     if input_rate is None and output_rate is None:
         return None
 
-    input_cost = (usage.get("input_tokens", 0) / 1_000_000) * (input_rate or 0.0)
-    output_cost = (usage.get("output_tokens", 0) / 1_000_000) * (output_rate or 0.0)
+    input_cost = (usage.get("input_tokens", 0) / 1_000_000) * float(input_rate or 0.0)
+    output_cost = (usage.get("output_tokens", 0) / 1_000_000) * float(output_rate or 0.0)
     return round(input_cost + output_cost, 8)
 
 
@@ -387,22 +1060,379 @@ def append_usage_ledger(entry: dict[str, Any]) -> str:
     return str(ledger_path)
 
 
-def policy_command() -> int:
+def load_benchmark_profiles(profile_name: str = "") -> list[dict[str, Any]]:
+    profiles: list[dict[str, Any]] = []
+    if not BENCHMARKS_DIR.exists():
+        return profiles
+
+    for path in sorted(BENCHMARKS_DIR.glob("*.json")):
+        payload = load_json_file(path, {})
+        if not isinstance(payload, dict):
+            continue
+        profile = str(payload.get("profile", path.stem)).strip().lower()
+        if profile_name and profile != profile_name:
+            continue
+        payload["profile"] = profile
+        profiles.append(payload)
+    return profiles
+
+
+def normalize_text(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def evaluate_case_output(output_text: str, case: dict[str, Any]) -> dict[str, Any]:
+    normalized_output = normalize_text(output_text)
+    details: dict[str, Any] = {
+        "output_chars": len(output_text),
+        "matched_all": [],
+        "matched_any": [],
+        "missing_all": [],
+        "missing_any": [],
+        "forbidden_hits": [],
+        "json_keys_present": [],
+        "json_keys_missing": [],
+    }
+    score = 1.0
+
+    expected_all = [normalize_text(str(item)) for item in case.get("expected_all", [])]
+    expected_any = [normalize_text(str(item)) for item in case.get("expected_any", [])]
+    forbidden = [normalize_text(str(item)) for item in case.get("forbidden", [])]
+    max_chars = int(case.get("max_chars", 0) or 0)
+    required_json_keys = [str(item) for item in case.get("require_json_keys", [])]
+
+    if expected_all:
+        matched = [item for item in expected_all if item in normalized_output]
+        missing = [item for item in expected_all if item not in normalized_output]
+        details["matched_all"] = matched
+        details["missing_all"] = missing
+        score *= len(matched) / len(expected_all)
+
+    if expected_any:
+        matched = [item for item in expected_any if item in normalized_output]
+        details["matched_any"] = matched
+        if matched:
+            score *= 1.0
+        else:
+            details["missing_any"] = expected_any
+            score *= 0.4
+
+    for item in forbidden:
+        if item and item in normalized_output:
+            details["forbidden_hits"].append(item)
+            score *= 0.65
+
+    if max_chars and len(output_text) > max_chars:
+        overflow_ratio = min(1.0, (len(output_text) - max_chars) / max_chars)
+        score *= max(0.35, 1.0 - overflow_ratio)
+
+    if required_json_keys:
+        try:
+            parsed = json.loads(output_text)
+        except json.JSONDecodeError:
+            parsed = {}
+        if isinstance(parsed, dict):
+            present = [key for key in required_json_keys if key in parsed]
+            missing = [key for key in required_json_keys if key not in parsed]
+            details["json_keys_present"] = present
+            details["json_keys_missing"] = missing
+            score *= len(present) / len(required_json_keys)
+        else:
+            details["json_keys_missing"] = required_json_keys
+            score *= 0.25
+
+    score = max(0.0, min(1.0, score))
+    details["score"] = round(score, 4)
+    return details
+
+
+def dispatch_with_provider_override(provider_id: str, task: str, task_class: str, privacy_class: str) -> dict[str, Any]:
+    result = subprocess.run(
+        [
+            "python3",
+            str(LOCAL_AGENT_PY),
+            "dispatch",
+            "--task",
+            task,
+            "--task-class",
+            task_class,
+            "--privacy-class",
+            privacy_class,
+            "--provider",
+            provider_id,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip() or f"dispatch failed with code {result.returncode}"
+        raise RuntimeError(stderr)
+    return json.loads(result.stdout)
+
+
+def frontier_judge_score(profile: dict[str, Any], case: dict[str, Any], output_text: str) -> dict[str, Any]:
+    rubric = {
+        "profile": profile["profile"],
+        "task_class": profile.get("task_class", profile["profile"]),
+        "expected_all": case.get("expected_all", []),
+        "expected_any": case.get("expected_any", []),
+        "forbidden": case.get("forbidden", []),
+        "require_json_keys": case.get("require_json_keys", []),
+        "max_chars": case.get("max_chars", 0),
+    }
+    judge_task = (
+        "You are grading another model output. Return JSON only in the form "
+        '{"score": <0-100>, "reason": "<short reason>"}. '
+        "Score for faithfulness, format compliance, compactness, and usefulness.\n\n"
+        f"Benchmark case:\n{json.dumps(rubric, ensure_ascii=True)}\n\n"
+        f"Original task:\n{case.get('task', '').strip()}\n\n"
+        f"Candidate output:\n{output_text.strip()}"
+    )
+
+    result = dispatch_with_provider_override("frontier_gateway", judge_task, "classify", "internal")
+    raw_text = result.get("provider_response_text", "").strip()
+    try:
+        payload = json.loads(raw_text)
+        score = float(payload.get("score", 0.0))
+        reason = str(payload.get("reason", "")).strip()
+    except json.JSONDecodeError:
+        match = re.search(r"(\d{1,3})", raw_text)
+        score = float(match.group(1)) if match else 0.0
+        reason = raw_text[:240]
+
+    normalized_score = max(0.0, min(1.0, score / 100.0))
+    return {
+        "score": round(normalized_score, 4),
+        "reason": reason,
+        "raw_response": raw_text,
+    }
+
+
+def should_use_frontier_judge(provider_id: str, profile_name: str, judge_mode: str, benchmark_store: dict[str, Any]) -> bool:
+    mode = judge_mode.strip().lower()
+    if mode == "never":
+        return False
+    if provider_id == "frontier_gateway":
+        return False
+    if mode == "always":
+        return True
+
+    provider_profiles = benchmark_store.get("providers", {}).get(provider_id, {}).get("profiles", {})
+    existing_profile = provider_profiles.get(profile_name, {})
+    last_evaluated = parse_iso8601(str(existing_profile.get("last_evaluated_at", "")))
+    if not existing_profile:
+        return True
+    if not last_evaluated:
+        return True
+    return last_evaluated < datetime.now(timezone.utc) - timedelta(hours=24)
+
+
+def evaluate_provider_profile(provider: dict[str, Any], profile: dict[str, Any], judge_mode: str, benchmark_store: dict[str, Any]) -> dict[str, Any]:
+    task_class = normalize_task_class(str(profile.get("task_class", profile["profile"]))) or "chat"
+    privacy_class = normalize_privacy_class(str(profile.get("privacy_class", "public"))) or "public"
+    cases = profile.get("cases", [])
+    if not isinstance(cases, list) or not cases:
+        raise RuntimeError(f"Benchmark profile {profile['profile']} has no cases")
+
+    case_results: list[dict[str, Any]] = []
+    for case in cases:
+        case_name = str(case.get("name", "unnamed"))
+        task = str(case.get("task", "")).strip()
+        if not task:
+            raise RuntimeError(f"Benchmark case {case_name} in profile {profile['profile']} is missing task")
+
+        dispatch_result = dispatch_with_provider_override(provider["id"], task, task_class, privacy_class)
+        output_text = dispatch_result.get("provider_response_text", "")
+        heuristic = evaluate_case_output(output_text, case)
+        case_result: dict[str, Any] = {
+            "name": case_name,
+            "heuristic_score": heuristic["score"],
+            "details": heuristic,
+            "provider_response_text": output_text,
+            "selected_provider": dispatch_result.get("provider_plan", {}).get("selected_provider", {}).get("id", provider["id"]),
+            "latency_ms": dispatch_result.get("provider_plan", {}).get("selected_provider", {}).get("health", {}).get("last_latency_ms"),
+        }
+
+        if should_use_frontier_judge(provider["id"], profile["profile"], judge_mode, benchmark_store):
+            judge_result = frontier_judge_score(profile, case, output_text)
+            case_result["judge_score"] = judge_result["score"]
+            case_result["judge_reason"] = judge_result["reason"]
+            case_result["judge_raw_response"] = judge_result["raw_response"]
+            case_result["score"] = round((heuristic["score"] * 0.5) + (judge_result["score"] * 0.5), 4)
+        else:
+            case_result["score"] = heuristic["score"]
+
+        case_results.append(case_result)
+
+    average_score = round(sum(case["score"] for case in case_results) / len(case_results), 4)
+    average_heuristic = round(sum(case["heuristic_score"] for case in case_results) / len(case_results), 4)
+    judge_scores = [case["judge_score"] for case in case_results if isinstance(case.get("judge_score"), (int, float))]
+    average_judge = round(sum(judge_scores) / len(judge_scores), 4) if judge_scores else None
+
+    return {
+        "profile": profile["profile"],
+        "task_class": task_class,
+        "privacy_class": privacy_class,
+        "score": average_score,
+        "heuristic_score": average_heuristic,
+        "judge_score": average_judge,
+        "case_count": len(case_results),
+        "cases": case_results,
+        "last_evaluated_at": utc_now(),
+    }
+
+
+def evaluate_providers(provider_id: str = "", profile_name: str = "", judge_mode: str = "targeted") -> dict[str, Any]:
+    config = load_router_config()
+    profiles = load_benchmark_profiles(profile_name)
+    if profile_name and not profiles:
+        raise RuntimeError(f"Unknown benchmark profile: {profile_name}")
+
+    benchmark_store = load_benchmark_store()
+    eligible_providers = []
+    for provider in config["providers"].values():
+        if provider_id and provider["id"] != sanitize_provider_name(provider_id):
+            continue
+        if not provider.get("configured", False):
+            continue
+        eligible_providers.append(provider)
+
+    if provider_id and not eligible_providers:
+        raise RuntimeError(f"Provider {provider_id} is not configured")
+
+    summaries: list[dict[str, Any]] = []
+    for provider in eligible_providers:
+        provider_profiles = [profile for profile in profiles if profile["profile"] in provider.get("benchmark_profiles", [])]
+        if not provider_profiles:
+            continue
+
+        provider_summary = benchmark_store.get("providers", {}).get(provider["id"], {})
+        updated_profiles: dict[str, Any] = dict(provider_summary.get("profiles", {}))
+        profile_summaries: list[dict[str, Any]] = []
+        for profile in provider_profiles:
+            result = evaluate_provider_profile(provider, profile, judge_mode, benchmark_store)
+            updated_profiles[profile["profile"]] = result
+            profile_summaries.append(result)
+
+        aggregate_quality = round(
+            sum(profile_result["score"] for profile_result in updated_profiles.values() if isinstance(profile_result, dict))
+            / max(len([profile_result for profile_result in updated_profiles.values() if isinstance(profile_result, dict)]), 1),
+            4,
+        )
+        benchmark_store.setdefault("providers", {})[provider["id"]] = {
+            "profiles": updated_profiles,
+            "aggregate_quality": aggregate_quality,
+            "last_evaluated_at": utc_now(),
+        }
+        summaries.append(
+            {
+                "provider_id": provider["id"],
+                "aggregate_quality": aggregate_quality,
+                "profiles": profile_summaries,
+            }
+        )
+
+    save_benchmark_store(benchmark_store)
+    return {
+        "evaluated_at": utc_now(),
+        "judge_mode": judge_mode,
+        "profiles": [profile["profile"] for profile in profiles],
+        "providers": summaries,
+        "benchmarks_file": str(DEFAULT_BENCHMARKS_FILE),
+    }
+
+
+def heartbeat_provider(provider: dict[str, Any]) -> dict[str, Any]:
+    if provider["id"] == "frontier_gateway":
+        gateway_url = provider.get("api_base_url", "").rstrip("/")
+        if not gateway_url:
+            raise RuntimeError("Frontier gateway URL is not configured")
+
+        import urllib.request
+
+        started_at = datetime.now(timezone.utc)
+        with urllib.request.urlopen(f"{gateway_url}/healthz", timeout=10) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"Gateway health returned HTTP {response.status}")
+        latency_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+        entry = record_provider_result(provider["id"], provider_enabled=provider.get("enabled", True), ok=True, latency_ms=latency_ms)
+        return {"provider_id": provider["id"], "status": "ok", "latency_ms": latency_ms, "health": entry}
+
+    dispatch_result = dispatch_with_provider_override(
+        provider["id"],
+        "Reply with the single word HEALTHY.",
+        "chat",
+        "public",
+    )
+    return {
+        "provider_id": provider["id"],
+        "status": "ok",
+        "response_text": dispatch_result.get("provider_response_text", ""),
+        "usage": dispatch_result.get("usage", {}),
+    }
+
+
+def heartbeat_providers(provider_id: str = "") -> dict[str, Any]:
+    config = load_router_config()
+    summaries: list[dict[str, Any]] = []
+    for provider in config["providers"].values():
+        if provider_id and provider["id"] != sanitize_provider_name(provider_id):
+            continue
+        if not provider.get("enabled", True):
+            continue
+        if not provider.get("configured", False):
+            continue
+        try:
+            summaries.append(heartbeat_provider(provider))
+        except Exception as exc:
+            latency_ms = int(provider.get("health", {}).get("last_latency_ms") or 0)
+            entry = record_provider_result(provider["id"], provider_enabled=provider.get("enabled", True), ok=False, latency_ms=latency_ms, error_message=str(exc))
+            summaries.append({"provider_id": provider["id"], "status": "error", "error": str(exc), "health": entry})
+    return {"checked_at": utc_now(), "providers": summaries, "health_file": str(DEFAULT_HEALTH_FILE)}
+
+
+def health_public_view(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or load_router_config()
+    return {
+        "checked_at": utc_now(),
+        "health_file": config["health_file"],
+        "providers": {
+            provider_id: {
+                "label": provider.get("label", provider_id),
+                "configured": provider.get("configured", False),
+                "enabled": provider.get("enabled", True),
+                "trust_tier": provider.get("trust_tier", "trusted_external"),
+                "health": provider.get("health", {}),
+            }
+            for provider_id, provider in config["providers"].items()
+        },
+    }
+
+
+def sync_command(_args: argparse.Namespace) -> int:
+    payload = sync_registry(write=True)
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
+    return 0
+
+
+def policy_command(_args: argparse.Namespace) -> int:
     print(json.dumps(public_policy_view(load_router_config()), indent=2, ensure_ascii=True))
     return 0
 
 
-def providers_command() -> int:
+def providers_command(_args: argparse.Namespace) -> int:
     config = load_router_config()
-    print(json.dumps([provider_public_view(provider) for provider in config["providers"].values()], indent=2, ensure_ascii=True))
+    print(json.dumps(public_policy_view(config), indent=2, ensure_ascii=True))
     return 0
 
 
-def plan_command(args: argparse.Namespace) -> int:
+def rank_command(args: argparse.Namespace) -> int:
+    task = args.task or args.task_class or "chat"
     print(
         json.dumps(
             choose_provider(
-                args.task,
+                task,
                 task_class=args.task_class,
                 privacy_class=args.privacy_class,
                 provider_override=args.provider,
@@ -414,22 +1444,75 @@ def plan_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def evaluate_command(args: argparse.Namespace) -> int:
+    print(
+        json.dumps(
+            evaluate_providers(
+                provider_id=args.provider,
+                profile_name=args.profile,
+                judge_mode=args.judge_mode,
+            ),
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+    return 0
+
+
+def health_command(args: argparse.Namespace) -> int:
+    if args.refresh:
+        print(json.dumps(heartbeat_providers(provider_id=args.provider), indent=2, ensure_ascii=True))
+        return 0
+    print(json.dumps(health_public_view(), indent=2, ensure_ascii=True))
+    return 0
+
+
+def heartbeat_command(args: argparse.Namespace) -> int:
+    print(json.dumps(heartbeat_providers(provider_id=args.provider), indent=2, ensure_ascii=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Freewiller provider routing and usage ledger.")
+    parser = argparse.ArgumentParser(description="Freewiller provider registry, routing, health, and benchmarks.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    sync_parser = subparsers.add_parser("sync")
+    sync_parser.set_defaults(func=sync_command)
+
     policy_parser = subparsers.add_parser("policy")
-    policy_parser.set_defaults(func=lambda _args: policy_command())
+    policy_parser.set_defaults(func=policy_command)
 
     providers_parser = subparsers.add_parser("providers")
-    providers_parser.set_defaults(func=lambda _args: providers_command())
+    providers_parser.set_defaults(func=providers_command)
+
+    rank_parser = subparsers.add_parser("rank")
+    rank_parser.add_argument("--task", default="")
+    rank_parser.add_argument("--task-class", default="")
+    rank_parser.add_argument("--privacy-class", default="")
+    rank_parser.add_argument("--provider", default="")
+    rank_parser.set_defaults(func=rank_command)
 
     plan_parser = subparsers.add_parser("plan")
-    plan_parser.add_argument("--task", required=True)
+    plan_parser.add_argument("--task", default="")
     plan_parser.add_argument("--task-class", default="")
     plan_parser.add_argument("--privacy-class", default="")
     plan_parser.add_argument("--provider", default="")
-    plan_parser.set_defaults(func=plan_command)
+    plan_parser.set_defaults(func=rank_command)
+
+    evaluate_parser = subparsers.add_parser("evaluate")
+    evaluate_parser.add_argument("--provider", default="")
+    evaluate_parser.add_argument("--profile", default="")
+    evaluate_parser.add_argument("--judge-mode", default="targeted", choices=["targeted", "always", "never"])
+    evaluate_parser.set_defaults(func=evaluate_command)
+
+    health_parser = subparsers.add_parser("health")
+    health_parser.add_argument("--provider", default="")
+    health_parser.add_argument("--refresh", action="store_true")
+    health_parser.set_defaults(func=health_command)
+
+    heartbeat_parser = subparsers.add_parser("heartbeat")
+    heartbeat_parser.add_argument("--provider", default="")
+    heartbeat_parser.set_defaults(func=heartbeat_command)
 
     return parser
 

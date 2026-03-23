@@ -190,8 +190,10 @@ run_repo_bootstrap() {
     "${REPO_DIR}/bash/cronjob_openclaw.sh" \
     "${REPO_DIR}/bash/backup_freewiller.sh" \
     "${REPO_DIR}/bash/cronjob_freewiller.sh" \
+    "${REPO_DIR}/bash/cronjob_provider_router.sh" \
     "${REPO_DIR}/bash/local_llm.sh" \
     "${REPO_DIR}/bash/local_memory.py" \
+    "${REPO_DIR}/bash/provider_router.py" \
     "${REPO_DIR}/bash/local_agent.py" \
     "${REPO_DIR}/bash/local_agent_http.py"
 
@@ -213,6 +215,11 @@ run_repo_bootstrap() {
   if [ "$INSTALL_FREEWILLER_BACKUPS" = "1" ]; then
     log "Installing local backup cron jobs"
     SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/cronjob_freewiller.sh"
+  fi
+
+  if [ "$INSTALL_LOCAL_LLM" = "1" ]; then
+    log "Installing provider heartbeat and evaluation cron jobs"
+    SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/cronjob_provider_router.sh"
   fi
 
   if [ "$INSTALL_LOCAL_AGENT_SERVICE" = "1" ]; then

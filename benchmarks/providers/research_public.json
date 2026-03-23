@@ -1,0 +1,14 @@
+{
+  "profile": "research_public",
+  "task_class": "research_public",
+  "privacy_class": "public",
+  "cases": [
+    {
+      "name": "public_takeaways",
+      "task": "From this public note, extract three takeaways in bullet form: The service is OpenAI-compatible, supports chat completions, and can run in instant or thinking mode. Instant mode is preferred for cheap routing and summarization.",
+      "expected_all": ["openai-compatible", "chat", "instant"],
+      "expected_any": ["thinking", "cheap", "summarization"],
+      "max_chars": 320
+    }
+  ]
+}

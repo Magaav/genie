@@ -6,6 +6,7 @@ import os
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 import local_agent
 import local_memory
@@ -61,7 +62,10 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self) -> None:
-        if self.path == "/health":
+        parsed = urlsplit(self.path)
+        query = parse_qs(parsed.query)
+
+        if parsed.path == "/health":
             self._write_json(
                 HTTPStatus.OK,
                 {
@@ -73,7 +77,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
-        if self.path == "/policy":
+        if parsed.path == "/policy":
             try:
                 output = local_agent.run_command([str(local_agent.LOCAL_LLM_SH), "policy"])
                 self._write_json(HTTPStatus.OK, {"policy": output})
@@ -81,7 +85,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return
 
-        if self.path == "/providers":
+        if parsed.path == "/providers":
             try:
                 self._write_json(
                     HTTPStatus.OK,
@@ -91,7 +95,36 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return
 
-        if self.path == "/memory/stats":
+        if parsed.path == "/providers/ranking":
+            try:
+                task = query.get("task", [""])[0]
+                task_class = query.get("task_class", [""])[0]
+                privacy_class = query.get("privacy_class", ["public"])[0]
+                provider = query.get("provider", [""])[0]
+                ranking = local_agent.provider_router.choose_provider(
+                    task or task_class or "chat",
+                    task_class=task_class,
+                    privacy_class=privacy_class,
+                    provider_override=provider,
+                )
+                self._write_json(HTTPStatus.OK, ranking)
+            except Exception as exc:
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return
+
+        if parsed.path == "/providers/health":
+            try:
+                refresh = query.get("refresh", ["0"])[0].strip().lower() in {"1", "true", "yes", "on"}
+                provider = query.get("provider", [""])[0]
+                if refresh:
+                    self._write_json(HTTPStatus.OK, local_agent.provider_router.heartbeat_providers(provider_id=provider))
+                else:
+                    self._write_json(HTTPStatus.OK, local_agent.provider_router.health_public_view())
+            except Exception as exc:
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return
+
+        if parsed.path == "/memory/stats":
             try:
                 self._write_json(HTTPStatus.OK, local_memory.memory_stats())
             except Exception as exc:
@@ -161,6 +194,15 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if self.path == "/providers/evaluate":
+                result = local_agent.provider_router.evaluate_providers(
+                    provider_id=str(payload.get("provider", "")),
+                    profile_name=str(payload.get("profile", "")),
+                    judge_mode=str(payload.get("judge_mode", "targeted")),
+                )
+                self._write_json(HTTPStatus.OK, result)
+                return
+
             task = payload.get("task", "").strip()
             if not task:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "task is required"})
@@ -189,6 +231,10 @@ class Handler(BaseHTTPRequestHandler):
                 result["usage"] = provider_result["usage"]
                 result["estimated_cost_usd"] = provider_result["estimated_cost_usd"]
                 result["usage_log_path"] = provider_result["usage_log_path"]
+                result["provider_id"] = provider_result["provider_id"]
+                result["provider_kind"] = provider_result["provider_kind"]
+                result["provider_model"] = provider_result["provider_model"]
+                result["failovers"] = provider_result["failovers"]
                 self._write_json(HTTPStatus.OK, result)
                 return
 

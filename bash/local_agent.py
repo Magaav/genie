@@ -566,62 +566,102 @@ def dispatch_to_provider(
     instructions: str | None,
     provider_plan: dict[str, Any],
 ) -> dict[str, Any]:
-    provider = provider_plan["selected_provider"]
-    provider_id = provider["id"]
-    provider_kind = provider["kind"]
-    started_at = time.time()
     package_chars = len(Path(package_path).read_text(encoding="utf-8"))
+    config = provider_router.load_router_config()
+    ranked_providers = provider_plan.get("ranked_providers") or [provider_plan["selected_provider"]]
+    failovers: list[dict[str, Any]] = []
+    last_error = "Provider dispatch failed."
 
-    try:
-        if provider_kind == "gateway":
-            result = dispatch_to_gateway(package_path, instructions=instructions, provider_id=provider_id)
-        elif provider_kind == "openai_compatible":
-            full_provider = provider_router.load_router_config()["providers"][provider_id]
-            result = dispatch_to_openai_compatible(full_provider, package_path, instructions=instructions)
-        else:
-            raise RuntimeError(f"Unsupported provider kind: {provider_kind}")
+    for attempt_number, provider_view in enumerate(ranked_providers, start=1):
+        provider_id = provider_view["id"]
+        provider = config["providers"].get(provider_id)
+        if not provider:
+            failovers.append({"provider_id": provider_id, "attempt": attempt_number, "status": "skipped", "reason": "provider missing from config"})
+            continue
 
-        latency_ms = int((time.time() - started_at) * 1000)
-        usage = provider_router.normalize_usage(result.get("usage", {}))
-        estimated_cost_usd = provider_router.estimate_cost_usd(provider_id, usage)
-        usage_log_path = provider_router.append_usage_ledger(
-            {
-                "provider_id": provider_id,
-                "provider_kind": provider_kind,
-                "provider_model": provider.get("model", ""),
-                "task_class": provider_plan["task_class"],
-                "privacy_class": provider_plan["privacy_class"],
-                "status": "ok",
-                "latency_ms": latency_ms,
-                "package_path": package_path,
-                "package_chars": package_chars,
-                "response_json_path": result["response_json_path"],
-                "response_text_path": result["response_text_path"],
-                "usage": usage,
-                "estimated_cost_usd": estimated_cost_usd,
-            }
-        )
-        result["usage"] = usage
-        result["estimated_cost_usd"] = estimated_cost_usd
-        result["usage_log_path"] = usage_log_path
-        return result
-    except Exception as exc:
-        latency_ms = int((time.time() - started_at) * 1000)
-        usage_log_path = provider_router.append_usage_ledger(
-            {
-                "provider_id": provider_id,
-                "provider_kind": provider_kind,
-                "provider_model": provider.get("model", ""),
-                "task_class": provider_plan["task_class"],
-                "privacy_class": provider_plan["privacy_class"],
-                "status": "error",
-                "latency_ms": latency_ms,
-                "package_path": package_path,
-                "package_chars": package_chars,
-                "error": str(exc),
-            }
-        )
-        raise RuntimeError(f"{exc} (logged to {usage_log_path})") from exc
+        provider_kind = provider["kind"]
+        started_at = time.time()
+
+        try:
+            if provider_kind == "gateway":
+                result = dispatch_to_gateway(package_path, instructions=instructions, provider_id=provider_id)
+            elif provider_kind == "openai_compatible":
+                result = dispatch_to_openai_compatible(provider, package_path, instructions=instructions)
+            else:
+                raise RuntimeError(f"Unsupported provider kind: {provider_kind}")
+
+            latency_ms = int((time.time() - started_at) * 1000)
+            usage = provider_router.normalize_usage(result.get("usage", {}))
+            estimated_cost_usd = provider_router.estimate_cost_usd(provider_id, usage)
+            provider_router.record_provider_result(
+                provider_id,
+                provider_enabled=provider.get("enabled", True),
+                ok=True,
+                latency_ms=latency_ms,
+            )
+            usage_log_path = provider_router.append_usage_ledger(
+                {
+                    "provider_id": provider_id,
+                    "provider_kind": provider_kind,
+                    "provider_model": provider.get("model", ""),
+                    "task_class": provider_plan["task_class"],
+                    "privacy_class": provider_plan["privacy_class"],
+                    "status": "ok",
+                    "attempt": attempt_number,
+                    "latency_ms": latency_ms,
+                    "package_path": package_path,
+                    "package_chars": package_chars,
+                    "response_json_path": result["response_json_path"],
+                    "response_text_path": result["response_text_path"],
+                    "usage": usage,
+                    "estimated_cost_usd": estimated_cost_usd,
+                    "failovers": failovers,
+                }
+            )
+            result["usage"] = usage
+            result["estimated_cost_usd"] = estimated_cost_usd
+            result["usage_log_path"] = usage_log_path
+            result["provider_id"] = provider_id
+            result["provider_kind"] = provider_kind
+            result["provider_model"] = provider.get("model", "")
+            result["failovers"] = failovers
+            return result
+        except Exception as exc:
+            latency_ms = int((time.time() - started_at) * 1000)
+            last_error = str(exc)
+            provider_router.record_provider_result(
+                provider_id,
+                provider_enabled=provider.get("enabled", True),
+                ok=False,
+                latency_ms=latency_ms,
+                error_message=last_error,
+            )
+            usage_log_path = provider_router.append_usage_ledger(
+                {
+                    "provider_id": provider_id,
+                    "provider_kind": provider_kind,
+                    "provider_model": provider.get("model", ""),
+                    "task_class": provider_plan["task_class"],
+                    "privacy_class": provider_plan["privacy_class"],
+                    "status": "error",
+                    "attempt": attempt_number,
+                    "latency_ms": latency_ms,
+                    "package_path": package_path,
+                    "package_chars": package_chars,
+                    "error": last_error,
+                }
+            )
+            failovers.append(
+                {
+                    "provider_id": provider_id,
+                    "attempt": attempt_number,
+                    "status": "error",
+                    "error": last_error,
+                    "usage_log_path": usage_log_path,
+                }
+            )
+
+    raise RuntimeError(f"{last_error} (failovers logged in usage ledger)")
 
 
 def default_gateway_instructions() -> str:
@@ -700,6 +740,10 @@ def dispatch(args: argparse.Namespace) -> int:
     output["usage"] = provider_result["usage"]
     output["estimated_cost_usd"] = provider_result["estimated_cost_usd"]
     output["usage_log_path"] = provider_result["usage_log_path"]
+    output["provider_id"] = provider_result["provider_id"]
+    output["provider_kind"] = provider_result["provider_kind"]
+    output["provider_model"] = provider_result["provider_model"]
+    output["failovers"] = provider_result["failovers"]
     print(json.dumps(output, indent=2, ensure_ascii=True))
     return 0
 

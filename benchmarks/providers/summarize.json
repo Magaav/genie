@@ -1,0 +1,22 @@
+{
+  "profile": "summarize",
+  "task_class": "summarize",
+  "privacy_class": "public",
+  "cases": [
+    {
+      "name": "memory_and_routing",
+      "task": "Summarize this in one short sentence: Freewiller stores durable memory locally, routes non-secret work across provider lanes, and keeps a frontier fallback for hard tasks.",
+      "expected_all": ["memory", "provider"],
+      "expected_any": ["frontier", "fallback"],
+      "forbidden": ["ignore previous instructions"],
+      "max_chars": 220
+    },
+    {
+      "name": "ops_stack",
+      "task": "Summarize this infrastructure note in at most two short bullets: Docker runs the local-agent service, Ollama hosts local models, and backups are saved hourly and daily for respawn recovery.",
+      "expected_all": ["docker", "backup"],
+      "expected_any": ["ollama", "local-agent"],
+      "max_chars": 240
+    }
+  ]
+}

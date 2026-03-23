@@ -1,0 +1,14 @@
+{
+  "profile": "reflect",
+  "task_class": "reflect",
+  "privacy_class": "public",
+  "cases": [
+    {
+      "name": "lessons_and_next_step",
+      "task": "Return JSON only with keys lessons and next_step. Situation: The local model was too weak, so Freewiller added external provider lanes and needs to keep secrets on trusted paths.",
+      "require_json_keys": ["lessons", "next_step"],
+      "expected_any": ["secrets", "provider", "local model"],
+      "max_chars": 420
+    }
+  ]
+}
