@@ -3,6 +3,8 @@
 /feed/
 /backups/
 /backup/
+/docker/access.env
+/docker/conf.env
 /docker/.env
 .env
 __pycache__/

@@ -19,8 +19,10 @@ USAGE_LEDGER_FILE="${FREEWILLER_USAGE_LEDGER_FILE:-$STATE_DIR/telemetry/provider
 PROVIDER_HEALTH_FILE="${PROVIDER_HEALTH_FILE:-$STATE_DIR/telemetry/provider-health.json}"
 PROVIDER_BENCHMARKS_FILE="${PROVIDER_BENCHMARKS_FILE:-$STATE_DIR/telemetry/provider-benchmarks.json}"
 LOCAL_MEMORY_PY="$(realpath "$ROOT_DIR/bash/local_memory.py")"
-REPO_ENV_FILE="${REPO_ENV_FILE:-$REPO_ENV_FILE_DEFAULT}"
-LEGACY_REPO_ENV_FILE_PATH="${LEGACY_REPO_ENV_FILE_PATH:-$LEGACY_REPO_ENV_FILE}"
+ACCESS_ENV_FILE="${ACCESS_ENV_FILE:-$ACCESS_ENV_FILE_DEFAULT}"
+CONF_ENV_FILE="${CONF_ENV_FILE:-$CONF_ENV_FILE_DEFAULT}"
+LEGACY_DOCKER_ENV_FILE_PATH="${LEGACY_DOCKER_ENV_FILE_PATH:-$LEGACY_DOCKER_ENV_FILE}"
+LEGACY_ROOT_ENV_FILE_PATH="${LEGACY_ROOT_ENV_FILE_PATH:-$LEGACY_ROOT_ENV_FILE}"
 GATEWAY_STATE_DIR="${GATEWAY_STATE_DIR:-$STATE_DIR/gateway}"
 PROJECTIONS_DIR="${PROJECTIONS_DIR:-$STATE_DIR/projections}"
 
@@ -77,10 +79,20 @@ build_snapshot_dir() {
     cp "$PROVIDER_REGISTRY_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/provider-registry.json"
   fi
 
-  if [ -f "$REPO_ENV_FILE" ]; then
-    cp "$REPO_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/repo.env"
-  elif [ -f "$LEGACY_REPO_ENV_FILE_PATH" ]; then
-    cp "$LEGACY_REPO_ENV_FILE_PATH" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/repo.env"
+  if [ -f "$ACCESS_ENV_FILE" ]; then
+    cp "$ACCESS_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/access.env"
+  fi
+
+  if [ -f "$CONF_ENV_FILE" ]; then
+    cp "$CONF_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/conf.env"
+  elif [ -f "$LEGACY_DOCKER_ENV_FILE_PATH" ]; then
+    split_env_file_to_paths "$LEGACY_DOCKER_ENV_FILE_PATH" \
+      "$snapshot_dir/$SNAPSHOT_ROOT_NAME/access.env" \
+      "$snapshot_dir/$SNAPSHOT_ROOT_NAME/conf.env"
+  elif [ -f "$LEGACY_ROOT_ENV_FILE_PATH" ]; then
+    split_env_file_to_paths "$LEGACY_ROOT_ENV_FILE_PATH" \
+      "$snapshot_dir/$SNAPSHOT_ROOT_NAME/access.env" \
+      "$snapshot_dir/$SNAPSHOT_ROOT_NAME/conf.env"
   fi
 
   if [ -f "$USAGE_LEDGER_FILE" ]; then
@@ -120,7 +132,8 @@ build_snapshot_dir() {
 {
   "created_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
   "state_dir": "$STATE_DIR",
-  "repo_env_present": $([ -f "$REPO_ENV_FILE" ] && echo true || echo false),
+  "access_env_present": $([ -f "$ACCESS_ENV_FILE" ] && echo true || echo false),
+  "conf_env_present": $([ -f "$CONF_ENV_FILE" ] && echo true || echo false),
   "provider_routing_present": $([ -f "$PROVIDER_ROUTING_ENV_FILE" ] && echo true || echo false),
   "provider_registry_present": $([ -f "$PROVIDER_REGISTRY_FILE" ] && echo true || echo false),
   "memory_entries": $(wc -l < "$STATE_DIR/memory/entries.jsonl" 2>/dev/null || echo 0),
@@ -246,12 +259,25 @@ restore_backup() {
     run_as_root install -m 644 "$snapshot_dir/provider-registry.json" "$STATE_DIR/provider-registry.json"
   fi
 
-  if [ -f "$snapshot_dir/repo.env" ]; then
-    run_as_root mkdir -p "$(dirname "$REPO_ENV_FILE")"
-    run_as_root install -m 600 "$snapshot_dir/repo.env" "$REPO_ENV_FILE"
-    run_as_root chown "$OWNER_USER:$OWNER_GROUP" "$REPO_ENV_FILE"
-    if [ "$LEGACY_REPO_ENV_FILE_PATH" != "$REPO_ENV_FILE" ] && [ -f "$LEGACY_REPO_ENV_FILE_PATH" ]; then
-      run_as_root rm -f "$LEGACY_REPO_ENV_FILE_PATH"
+  if [ -f "$snapshot_dir/access.env" ]; then
+    run_as_root mkdir -p "$(dirname "$ACCESS_ENV_FILE")"
+    run_as_root install -m 600 "$snapshot_dir/access.env" "$ACCESS_ENV_FILE"
+    run_as_root chown "$OWNER_USER:$OWNER_GROUP" "$ACCESS_ENV_FILE"
+  fi
+
+  if [ -f "$snapshot_dir/conf.env" ]; then
+    run_as_root mkdir -p "$(dirname "$CONF_ENV_FILE")"
+    run_as_root install -m 600 "$snapshot_dir/conf.env" "$CONF_ENV_FILE"
+    run_as_root chown "$OWNER_USER:$OWNER_GROUP" "$CONF_ENV_FILE"
+  elif [ -f "$snapshot_dir/repo.env" ]; then
+    run_as_root mkdir -p "$(dirname "$ACCESS_ENV_FILE")"
+    split_env_file_to_paths "$snapshot_dir/repo.env" "$ACCESS_ENV_FILE" "$CONF_ENV_FILE"
+    run_as_root chown "$OWNER_USER:$OWNER_GROUP" "$ACCESS_ENV_FILE" "$CONF_ENV_FILE"
+    if [ -f "$LEGACY_DOCKER_ENV_FILE_PATH" ]; then
+      run_as_root rm -f "$LEGACY_DOCKER_ENV_FILE_PATH"
+    fi
+    if [ -f "$LEGACY_ROOT_ENV_FILE_PATH" ]; then
+      run_as_root rm -f "$LEGACY_ROOT_ENV_FILE_PATH"
     fi
   fi
 

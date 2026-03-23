@@ -37,7 +37,8 @@ Top level stays intentionally small:
 Docker runtime files live under:
 
 - `/local/docker/compose.yml`
-- `/local/docker/.env`
+- `/local/docker/access.env`
+- `/local/docker/conf.env`
 
 Per-service build contexts live under:
 
@@ -123,11 +124,12 @@ Runtime state lives under `/local` but is ignored by Git:
 - `/local/backups`
 - `/local/feed`
 
-The primary secret file is:
+The runtime env is split into:
 
-- `/local/docker/.env`
+- `/local/docker/access.env`
+- `/local/docker/conf.env`
 
-Backups include that file, so bot tokens and provider keys can respawn with the node.
+Backups include both files, so secrets and runtime configuration can respawn with the node.
 
 ## Memory Layout
 
@@ -203,15 +205,19 @@ sudo RESTORE_BACKUP_PATH=/tmp/genie-daily-2026-03-23.tar.gz \
 Operator-controlled runtime secrets belong in:
 
 ```bash
-/local/docker/.env
+/local/docker/access.env
+/local/docker/conf.env
 ```
 
 Examples:
 
 ```bash
+# /local/docker/access.env
 TELEGRAM_BOT_TOKEN='...'
 NVIDIA_API_KEY='...'
 OPENROUTER_API_KEY='...'
+
+# /local/docker/conf.env
 OPENROUTER_MODEL='openrouter/free'
 OPENROUTER_FREE_ONLY='1'
 GENIE_GATEWAY_PORT='18790'
@@ -220,7 +226,7 @@ GENIE_TELEGRAM_ENABLED='1'
 
 Do not use root-level `/local/.env` anymore.
 
-`bash /local/bash/install_local_llm.sh` will read `/local/docker/.env`, sync provider configuration, and persist resolved routing state.
+`bash /local/bash/install_local_llm.sh` will read both `/local/docker/access.env` and `/local/docker/conf.env`, sync provider configuration, and persist resolved routing state.
 
 When `NVIDIA_API_KEY` or `OPENROUTER_API_KEY` is present, Brain Router also discovers the live provider catalogs and imports bounded benchmark-pending candidates automatically.
 
@@ -242,7 +248,10 @@ newgrp docker
 Bring the native stack up manually:
 
 ```bash
-docker compose -f /local/docker/compose.yml up -d --build
+docker compose \
+  --env-file /local/docker/conf.env \
+  --env-file /local/docker/access.env \
+  -f /local/docker/compose.yml up -d --build
 ```
 
 Verify it:
@@ -275,7 +284,10 @@ Use shadow mode before taking over the live port or Telegram surface:
 
 ```bash
 GENIE_GATEWAY_PORT=28790 GENIE_TELEGRAM_ENABLED=0 \
-  docker compose -f /local/docker/compose.yml up -d --build
+  docker compose \
+    --env-file /local/docker/conf.env \
+    --env-file /local/docker/access.env \
+    -f /local/docker/compose.yml up -d --build
 ```
 
 This keeps the native stack isolated on `127.0.0.1:28790`.
@@ -360,7 +372,8 @@ Backup locations:
 
 Backups include:
 
-- `/local/docker/.env`
+- `/local/docker/access.env`
+- `/local/docker/conf.env`
 - memory journal and SQLite store
 - projection files
 - provider registry/routing/telemetry

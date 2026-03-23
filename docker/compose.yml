@@ -6,7 +6,8 @@ services:
     network_mode: host
     restart: unless-stopped
     env_file:
-      - /local/docker/.env
+      - /local/docker/conf.env
+      - /local/docker/access.env
     environment:
       LOCAL_LLM_DIR: /local/state/genie
       FREEWILLER_LOG_DIR: /local/log/genie
@@ -25,7 +26,7 @@ services:
       - /local/bash:/local/bash:ro
       - /local/config:/local/config:ro
       - /local/benchmarks:/local/benchmarks:ro
-      - /local/docker/.env:/local/docker/.env:ro
+      - /local/docker:/local/docker:ro
 
   memory:
     build:
@@ -34,7 +35,8 @@ services:
     network_mode: host
     restart: unless-stopped
     env_file:
-      - /local/docker/.env
+      - /local/docker/conf.env
+      - /local/docker/access.env
     environment:
       LOCAL_LLM_DIR: /local/state/genie
       FREEWILLER_LOG_DIR: /local/log/genie
@@ -51,7 +53,7 @@ services:
       - /local/state/genie:/local/state/genie
       - /local/log/genie:/local/log/genie
       - /local/bash:/local/bash:ro
-      - /local/docker/.env:/local/docker/.env:ro
+      - /local/docker:/local/docker:ro
 
   ethics:
     build:
@@ -60,7 +62,8 @@ services:
     network_mode: host
     restart: unless-stopped
     env_file:
-      - /local/docker/.env
+      - /local/docker/conf.env
+      - /local/docker/access.env
     environment:
       LOCAL_LLM_DIR: /local/state/genie
       FREEWILLER_LOG_DIR: /local/log/genie
@@ -84,7 +87,7 @@ services:
       - /local/state/genie:/local/state/genie
       - /local/log/genie:/local/log/genie
       - /local/bash:/local/bash:ro
-      - /local/docker/.env:/local/docker/.env:ro
+      - /local/docker:/local/docker:ro
 
   gateway:
     build:
@@ -93,7 +96,8 @@ services:
     network_mode: host
     restart: unless-stopped
     env_file:
-      - /local/docker/.env
+      - /local/docker/conf.env
+      - /local/docker/access.env
     environment:
       LOCAL_LLM_DIR: /local/state/genie
       FREEWILLER_LOG_DIR: /local/log/genie
@@ -121,4 +125,4 @@ services:
       - /local/state/genie:/local/state/genie
       - /local/log/genie:/local/log/genie
       - /local/bash:/local/bash:ro
-      - /local/docker/.env:/local/docker/.env:ro
+      - /local/docker:/local/docker:ro

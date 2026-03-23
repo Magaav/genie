@@ -7,7 +7,8 @@ source "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/system/env.sh"
 ACTUAL_USER="${SUDO_USER:-$USER}"
 ACTUAL_HOME="$(getent passwd "$ACTUAL_USER" | cut -d: -f6)"
 COMPOSE_FILE="${COMPOSE_FILE:-$COMPOSE_FILE_DEFAULT}"
-COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-$REPO_ENV_FILE_DEFAULT}"
+ACCESS_ENV_FILE="${ACCESS_ENV_FILE:-$ACCESS_ENV_FILE_DEFAULT}"
+CONF_ENV_FILE="${CONF_ENV_FILE:-$CONF_ENV_FILE_DEFAULT}"
 DEFAULT_LOCAL_LLM_DIR="/local/state/genie"
 LEGACY_LOCAL_LLM_DIR_PRIMARY="/local/state/freewiller"
 LEGACY_LOCAL_LLM_DIR_SECONDARY="/var/lib/freewiller"
@@ -18,7 +19,6 @@ LEGACY_LOG_DIR_SECONDARY="/var/log/freewiller"
 LEGACY_LOG_DIR_TERTIARY="/var/log/openclaw"
 LOCAL_LLM_DIR="${LOCAL_LLM_DIR:-$DEFAULT_LOCAL_LLM_DIR}"
 LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-${LOCAL_LLM_DIR}/local-llm.env}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${GENIE_GATEWAY_PORT:-18790}/health}"
 LEGACY_TELEGRAM_ALLOWLIST_FILE="/local/state/genie/frontier/openclaw/runtime/credentials/telegram-default-allowFrom.json"
 GATEWAY_STATE_DIR="${LOCAL_LLM_DIR}/gateway"
 GATEWAY_ALLOWLIST_FILE="${GATEWAY_STATE_DIR}/telegram-allowlist.json"
@@ -43,14 +43,38 @@ ensure_local_llm_config() {
   fi
 }
 
-ensure_compose_env() {
-  run_as_root mkdir -p "$(dirname "$COMPOSE_ENV_FILE")"
-  if [ ! -f "$COMPOSE_ENV_FILE" ] && [ -f "$LEGACY_REPO_ENV_FILE" ]; then
-    run_as_root mv "$LEGACY_REPO_ENV_FILE" "$COMPOSE_ENV_FILE"
-  fi
-  run_as_root touch "$COMPOSE_ENV_FILE"
-  run_as_root chown "$ACTUAL_USER:$ACTUAL_USER" "$COMPOSE_ENV_FILE"
-  run_as_root chmod 600 "$COMPOSE_ENV_FILE"
+read_compose_env_value() {
+  local key="$1"
+  local raw_value
+  for env_file in "$CONF_ENV_FILE" "$ACCESS_ENV_FILE" "$LEGACY_DOCKER_ENV_FILE" "$LEGACY_ROOT_ENV_FILE"; do
+    if [ ! -f "$env_file" ]; then
+      continue
+    fi
+    raw_value="$(grep -E "^${key}=" "$env_file" | tail -n 1 | cut -d= -f2- || true)"
+    if [ -n "$raw_value" ]; then
+      raw_value="${raw_value#\'}"
+      raw_value="${raw_value%\'}"
+      raw_value="${raw_value#\"}"
+      raw_value="${raw_value%\"}"
+      printf '%s\n' "$raw_value"
+      return 0
+    fi
+  done
+  return 1
+}
+
+resolved_gateway_port() {
+  read_compose_env_value GENIE_GATEWAY_PORT || printf '%s\n' "${GENIE_GATEWAY_PORT:-18790}"
+}
+
+compose_cmd() {
+  docker compose --env-file "$CONF_ENV_FILE" --env-file "$ACCESS_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+ensure_compose_env_files() {
+  ensure_split_env_files "$ACCESS_ENV_FILE" "$CONF_ENV_FILE"
+  run_as_root chown "$ACTUAL_USER:$ACTUAL_USER" "$ACCESS_ENV_FILE" "$CONF_ENV_FILE"
+  run_as_root chmod 600 "$ACCESS_ENV_FILE" "$CONF_ENV_FILE"
 }
 
 merge_legacy_log_dir() {
@@ -117,14 +141,18 @@ migrate_legacy_gateway_state() {
 
 wait_for_health() {
   local attempt
+  local gateway_port
+  local health_url
+  gateway_port="$(resolved_gateway_port)"
+  health_url="${HEALTH_URL:-http://127.0.0.1:${gateway_port}/health}"
   for attempt in $(seq 1 20); do
-    if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+    if curl -fsS "$health_url" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
   done
 
-  echo "Genie gateway did not become healthy at $HEALTH_URL"
+  echo "Genie gateway did not become healthy at $health_url"
   exit 1
 }
 
@@ -132,22 +160,22 @@ install_aliases() {
   local bashrc_file="${ACTUAL_HOME}/.bashrc"
 
   if ! grep -Fq "alias genie-up='docker compose -f ${COMPOSE_FILE} up -d --build'" "$bashrc_file" 2>/dev/null; then
-    echo "alias genie-up='docker compose -f ${COMPOSE_FILE} up -d --build'" >> "$bashrc_file"
+    echo "alias genie-up='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} up -d --build'" >> "$bashrc_file"
   fi
 
-  if ! grep -Fq "alias genie-logs='docker compose -f ${COMPOSE_FILE} logs -f gateway ethics memory brain'" "$bashrc_file" 2>/dev/null; then
-    echo "alias genie-logs='docker compose -f ${COMPOSE_FILE} logs -f gateway ethics memory brain'" >> "$bashrc_file"
+  if ! grep -Fq "alias genie-logs='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} logs -f gateway ethics memory brain'" "$bashrc_file" 2>/dev/null; then
+    echo "alias genie-logs='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} logs -f gateway ethics memory brain'" >> "$bashrc_file"
   fi
 }
 
 main() {
   ensure_docker
-  ensure_compose_env
+  ensure_compose_env_files
   migrate_legacy_paths
   migrate_legacy_gateway_state
   ensure_local_llm_config
   run_as_root mkdir -p "$LOCAL_LLM_DIR" "${FREEWILLER_LOG_DIR:-$DEFAULT_LOG_DIR}"
-  docker compose -f "$COMPOSE_FILE" up -d --build
+  compose_cmd up -d --build
   wait_for_health
   install_aliases
 
@@ -155,7 +183,7 @@ main() {
 
   echo "Genie stack started."
   echo "Compose file: $COMPOSE_FILE"
-  echo "Health URL: http://127.0.0.1:${GENIE_GATEWAY_PORT:-18790}/health"
+  echo "Health URL: http://127.0.0.1:$(resolved_gateway_port)/health"
   echo "Reload your shell to use the genie-up and genie-logs aliases."
 }
 
