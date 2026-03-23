@@ -43,6 +43,8 @@ BENCHMARK_PROFILES = {"summarize", "extract", "compact", "reflect", "research_pu
 PUBLIC_ELIGIBLE_TASKS = {"summarize", "extract", "classify", "compact", "reflect", "research_public"}
 CHEAP_ELIGIBLE_TASKS = PUBLIC_ELIGIBLE_TASKS | {"chat"}
 FRONTIER_ONLY_TASKS = {"architecture", "coding", "ops"}
+FAST_LOOP_TASKS = {"chat", "classify", "extract", "summarize"}
+SLOW_POWERFUL_TASKS = {"compact", "reflect", "research_public"}
 TASK_PROFILE_MAP = {
     "summarize": "summarize",
     "extract": "extract",
@@ -321,7 +323,7 @@ def detect_repo_env_warnings() -> list[str]:
     repo_keys = read_repo_env_keys()
     if "NVIDEA_KIMI_K2.5_API_KEY" in repo_keys:
         warnings.append(
-            "Unsupported .env key NVIDEA_KIMI_K2.5_API_KEY detected. Rename it to NVIDIA_API_KEY or FREEWILLER_NVIDIA_API_KEY."
+            "Unsupported .env key NVIDEA_KIMI_K2.5_API_KEY detected. Rename it to NVIDIA_KIMI_K25_API_KEY."
         )
 
     for key in repo_keys:
@@ -368,7 +370,7 @@ def default_registry_entry_frontier(raw: dict[str, str]) -> dict[str, Any]:
 
 
 def default_registry_entry_nvidia(raw: dict[str, str]) -> dict[str, Any] | None:
-    api_key_env = first_present_key(raw, "FREEWILLER_NVIDIA_API_KEY", "NVIDIA_API_KEY", "NGC_API_KEY")
+    api_key_env = first_present_key(raw, "NVIDIA_KIMI_K25_API_KEY", "FREEWILLER_NVIDIA_API_KEY", "NVIDIA_API_KEY", "NGC_API_KEY")
     if not api_key_env:
         return None
 
@@ -398,12 +400,49 @@ def default_registry_entry_nvidia(raw: dict[str, str]) -> dict[str, Any] | None:
         "api_mode": env_get(raw, "FREEWILLER_NVIDIA_API_MODE", "NVIDIA_API_MODE", default="chat"),
         "extra_body": extra_body,
         "trust_tier": "trusted_external",
+        "latency_tier": "slow",
+        "strength_tier": "powerful",
+        "interactive": False,
         "allowed_privacy": ["public", "internal"],
-        "allowed_tasks": sorted(CHEAP_ELIGIBLE_TASKS),
+        "allowed_tasks": sorted(SLOW_POWERFUL_TASKS),
         "max_output_tokens": env_int(raw, "FREEWILLER_NVIDIA_MAX_OUTPUT_TOKENS", env_int(raw, "NVIDIA_MAX_OUTPUT_TOKENS", 1024)),
         "request_timeout_seconds": env_int(raw, "FREEWILLER_NVIDIA_REQUEST_TIMEOUT_SECONDS", env_int(raw, "NVIDIA_REQUEST_TIMEOUT_SECONDS", 240)),
         "cost_input_per_million": env_float(raw, "FREEWILLER_NVIDIA_INPUT_COST_PER_MILLION"),
         "cost_output_per_million": env_float(raw, "FREEWILLER_NVIDIA_OUTPUT_COST_PER_MILLION"),
+        "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+    }
+
+
+def default_registry_entry_nvidia_gpt_oss_120b(raw: dict[str, str]) -> dict[str, Any] | None:
+    api_key_env = first_present_key(
+        raw,
+        "NVIDIA_GPT_OSS_120B_API_KEY",
+        "FREEWILLER_NVIDIA_GPT_OSS_120B_API_KEY",
+    )
+    if not api_key_env:
+        return None
+
+    return {
+        "id": "nvidia_gpt_oss_120b",
+        "label": "NVIDIA GPT OSS 120B",
+        "enabled": True,
+        "provider_family": "nvidia",
+        "kind": "openai_compatible",
+        "api_key_env": api_key_env,
+        "api_base_url": env_get(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_API_BASE_URL", "NVIDIA_GPT_OSS_120B_API_BASE_URL", default="https://integrate.api.nvidia.com/v1"),
+        "model": env_get(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_MODEL", "NVIDIA_GPT_OSS_120B_MODEL", default="openai/gpt-oss-120b"),
+        "api_mode": env_get(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_API_MODE", default="chat"),
+        "extra_body": {},
+        "trust_tier": "trusted_external",
+        "latency_tier": "slow",
+        "strength_tier": "powerful",
+        "interactive": False,
+        "allowed_privacy": ["public", "internal"],
+        "allowed_tasks": sorted(SLOW_POWERFUL_TASKS),
+        "max_output_tokens": env_int(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_MAX_OUTPUT_TOKENS", 1024),
+        "request_timeout_seconds": env_int(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_REQUEST_TIMEOUT_SECONDS", 240),
+        "cost_input_per_million": env_float(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_INPUT_COST_PER_MILLION"),
+        "cost_output_per_million": env_float(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_OUTPUT_COST_PER_MILLION"),
         "benchmark_profiles": sorted(BENCHMARK_PROFILES),
     }
 
@@ -468,6 +507,7 @@ def default_registry_entry_legacy(raw: dict[str, str], *, public_only: bool) -> 
 def default_registry_entries(raw: dict[str, str]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = [default_registry_entry_frontier(raw)]
     nvidia_entry = default_registry_entry_nvidia(raw)
+    nvidia_gpt_oss_entry = default_registry_entry_nvidia_gpt_oss_120b(raw)
     openrouter_entry = default_registry_entry_openrouter(raw)
     legacy_cheap_entry = default_registry_entry_legacy(raw, public_only=False)
     legacy_public_entry = default_registry_entry_legacy(raw, public_only=True)
@@ -479,6 +519,7 @@ def default_registry_entries(raw: dict[str, str]) -> list[dict[str, Any]]:
 
     for candidate in (
         nvidia_entry,
+        nvidia_gpt_oss_entry,
         openrouter_entry,
         legacy_cheap_entry,
         legacy_public_entry,
@@ -499,6 +540,7 @@ def normalize_provider_entry(raw_entry: dict[str, Any]) -> dict[str, Any]:
     allowed_tasks = normalize_task_list(entry.get("allowed_tasks"), sorted(CHEAP_ELIGIBLE_TASKS))
     max_output_tokens = int(entry.get("max_output_tokens", 1024))
     request_timeout_seconds = int(entry.get("request_timeout_seconds", 90))
+    interactive = bool(entry.get("interactive", True))
     api_mode = str(entry.get("api_mode", "chat")).strip().lower() or "chat"
     extra_body = entry.get("extra_body")
     if not isinstance(extra_body, dict):
@@ -516,6 +558,9 @@ def normalize_provider_entry(raw_entry: dict[str, Any]) -> dict[str, Any]:
         "api_mode": api_mode,
         "extra_body": extra_body,
         "trust_tier": trust_tier,
+        "latency_tier": str(entry.get("latency_tier", "normal")).strip() or "normal",
+        "strength_tier": str(entry.get("strength_tier", "standard")).strip() or "standard",
+        "interactive": interactive,
         "allowed_privacy": allowed_privacy,
         "allowed_tasks": allowed_tasks,
         "max_output_tokens": max_output_tokens,
@@ -529,7 +574,7 @@ def normalize_provider_entry(raw_entry: dict[str, Any]) -> dict[str, Any]:
 def merge_registry_entries(existing_entries: list[dict[str, Any]], auto_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     auto_index = {entry["id"]: normalize_provider_entry(entry) for entry in auto_entries}
-    auto_managed_ids = {"frontier_gateway", "nvidia_kimi_k2_5", "openrouter_auto", "legacy_cheap", "legacy_public"}
+    auto_managed_ids = {"frontier_gateway", "nvidia_kimi_k2_5", "nvidia_gpt_oss_120b", "openrouter_auto", "legacy_cheap", "legacy_public"}
 
     for entry in auto_entries:
         normalized = normalize_provider_entry(entry)
@@ -753,6 +798,8 @@ def provider_should_be_eligible(provider: dict[str, Any], task_class: str, priva
         return False, f"privacy class {privacy_class} not allowed"
     if task_class not in provider.get("allowed_tasks", []):
         return False, f"task class {task_class} not allowed"
+    if not provider.get("interactive", True) and task_class in FAST_LOOP_TASKS:
+        return False, f"provider reserved for slow powerful work, not {task_class}"
 
     health_entry = provider.get("health", {})
     state = health_entry.get("state", "healthy")
@@ -773,6 +820,9 @@ def provider_public_view(provider: dict[str, Any], *, include_score_components: 
         "model": provider.get("model", ""),
         "provider_family": provider.get("provider_family", "generic"),
         "trust_tier": provider.get("trust_tier", "trusted_external"),
+        "latency_tier": provider.get("latency_tier", "normal"),
+        "strength_tier": provider.get("strength_tier", "standard"),
+        "interactive": provider.get("interactive", True),
         "allowed_privacy": provider.get("allowed_privacy", []),
         "allowed_tasks": provider.get("allowed_tasks", []),
         "max_output_tokens": provider.get("max_output_tokens"),

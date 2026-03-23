@@ -261,9 +261,7 @@ python3 /local/bash/provider_router.py evaluate --profile summarize
 Example NVIDIA cheap-lane config in `/local/.env`:
 
 ```bash
-NVIDIA_API_KEY='your_nvidia_key'
-FREEWILLER_NVIDIA_MODEL='moonshotai/kimi-k2.5'
-FREEWILLER_NVIDIA_REQUEST_TIMEOUT_SECONDS='240'
+NVIDIA_KIMI_K25_API_KEY='your_kimi_key'
 ```
 
 Kimi K2.5 is wired in instant mode by default so it does not waste tokens on thinking traces. After updating `.env`, apply it with:
@@ -275,8 +273,8 @@ bash /local/bash/install_local_agent_service.sh
 
 Supported NVIDIA secret names are:
 
-- `NVIDIA_API_KEY`
-- `FREEWILLER_NVIDIA_API_KEY`
+- `NVIDIA_KIMI_K25_API_KEY`
+- `NVIDIA_GPT_OSS_120B_API_KEY`
 
 Unsupported dotted or malformed provider keys are ignored with warnings during registry sync. Do not use names like `NVIDEA_KIMI_K2.5_API_KEY`.
 
