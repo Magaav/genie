@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from genie_state import ensure_state_layout, resolve_state_dir
+
 
 ROOT_DIR = Path("/local")
 PRIMARY_ROUTER_ENV_BASENAME = "provider-routing.env"
@@ -211,34 +213,16 @@ NVIDIA_MODEL_CATALOG = [
     },
 ]
 
-
-def resolve_state_dir() -> Path:
-    if os.environ.get("LOCAL_LLM_DIR"):
-        return Path(os.environ["LOCAL_LLM_DIR"])
-    default_path = Path("/local/state/genie")
-    primary_legacy_path = Path("/local/state/freewiller")
-    secondary_legacy_path = Path("/var/lib/freewiller")
-    tertiary_legacy_path = Path("/var/lib/openclaw-local-llm")
-    if default_path.exists():
-        return default_path
-    if primary_legacy_path.exists():
-        return primary_legacy_path
-    if secondary_legacy_path.exists():
-        return secondary_legacy_path
-    if tertiary_legacy_path.exists():
-        return tertiary_legacy_path
-    return default_path
-
-
-LOCAL_LLM_DIR = resolve_state_dir()
-PRIMARY_ROUTER_ENV_FILE = LOCAL_LLM_DIR / PRIMARY_ROUTER_ENV_BASENAME
+STATE_LAYOUT = ensure_state_layout(resolve_state_dir())
+LOCAL_LLM_DIR = STATE_LAYOUT["state_dir"]
+PRIMARY_ROUTER_ENV_FILE = STATE_LAYOUT["provider_routing_file"]
 LEGACY_ROUTER_ENV_FILE = LOCAL_LLM_DIR / LEGACY_ROUTER_ENV_BASENAME
-PRIMARY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / PRIMARY_GATEWAY_ENV_BASENAME
+PRIMARY_GATEWAY_ENV_FILE = STATE_LAYOUT["gateway_env_file"]
 SECONDARY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / SECONDARY_GATEWAY_ENV_BASENAME
 LEGACY_GATEWAY_ENV_FILE = LOCAL_LLM_DIR / LEGACY_GATEWAY_ENV_BASENAME
-PRIMARY_REGISTRY_FILE = LOCAL_LLM_DIR / PRIMARY_REGISTRY_BASENAME
+PRIMARY_REGISTRY_FILE = STATE_LAYOUT["provider_registry_file"]
 LEGACY_REGISTRY_FILE = LOCAL_LLM_DIR / LEGACY_REGISTRY_BASENAME
-TELEMETRY_DIR = LOCAL_LLM_DIR / "telemetry"
+TELEMETRY_DIR = STATE_LAYOUT["telemetry_dir"]
 DEFAULT_USAGE_LEDGER_FILE = TELEMETRY_DIR / "provider-usage.jsonl"
 DEFAULT_HEALTH_FILE = TELEMETRY_DIR / "provider-health.json"
 DEFAULT_BENCHMARKS_FILE = TELEMETRY_DIR / "provider-benchmarks.json"

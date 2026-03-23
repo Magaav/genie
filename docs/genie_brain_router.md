@@ -81,9 +81,9 @@ Providers move through explicit states:
 Brain Router keeps its runtime state under:
 
 - registry:
-  - `/local/state/genie/provider-registry.json`
+  - `/local/state/genie/policy/provider-registry.json`
 - routing policy:
-  - `/local/state/genie/provider-routing.env`
+  - `/local/state/genie/policy/provider-routing.env`
 - health:
   - `/local/state/genie/telemetry/provider-health.json`
 - benchmarks:

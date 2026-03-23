@@ -13,18 +13,24 @@ HOURLY_PREFIX="genie-hourly"
 DAILY_PREFIX="genie-daily"
 KEEP_HOURLY="${KEEP_HOURLY:-3}"
 KEEP_DAILY="${KEEP_DAILY:-1}"
-PROVIDER_ROUTING_ENV_FILE="${PROVIDER_ROUTING_ENV_FILE:-$STATE_DIR/provider-routing.env}"
-PROVIDER_REGISTRY_FILE="${PROVIDER_REGISTRY_FILE:-$STATE_DIR/provider-registry.json}"
-USAGE_LEDGER_FILE="${FREEWILLER_USAGE_LEDGER_FILE:-$STATE_DIR/telemetry/provider-usage.jsonl}"
-PROVIDER_HEALTH_FILE="${PROVIDER_HEALTH_FILE:-$STATE_DIR/telemetry/provider-health.json}"
-PROVIDER_BENCHMARKS_FILE="${PROVIDER_BENCHMARKS_FILE:-$STATE_DIR/telemetry/provider-benchmarks.json}"
+POLICY_DIR="${GENIE_POLICY_DIR:-$STATE_DIR/policy}"
+MEMORY_DIR="${GENIE_MEMORY_DIR:-$STATE_DIR/memory}"
+TELEMETRY_DIR="${GENIE_TELEMETRY_DIR:-$STATE_DIR/telemetry}"
+RUNTIME_DIR="${GENIE_RUNTIME_DIR:-$STATE_DIR/runtime}"
+LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-$POLICY_DIR/local-llm.env}"
+GENIE_GATEWAY_ENV_FILE="${GENIE_GATEWAY_ENV_FILE:-$POLICY_DIR/genie-gateway.env}"
+PROVIDER_ROUTING_ENV_FILE="${PROVIDER_ROUTING_ENV_FILE:-$POLICY_DIR/provider-routing.env}"
+PROVIDER_REGISTRY_FILE="${PROVIDER_REGISTRY_FILE:-$POLICY_DIR/provider-registry.json}"
+USAGE_LEDGER_FILE="${FREEWILLER_USAGE_LEDGER_FILE:-$TELEMETRY_DIR/provider-usage.jsonl}"
+PROVIDER_HEALTH_FILE="${PROVIDER_HEALTH_FILE:-$TELEMETRY_DIR/provider-health.json}"
+PROVIDER_BENCHMARKS_FILE="${PROVIDER_BENCHMARKS_FILE:-$TELEMETRY_DIR/provider-benchmarks.json}"
 LOCAL_MEMORY_PY="$(realpath "$ROOT_DIR/bash/local_memory.py")"
 ACCESS_ENV_FILE="${ACCESS_ENV_FILE:-$ACCESS_ENV_FILE_DEFAULT}"
 CONF_ENV_FILE="${CONF_ENV_FILE:-$CONF_ENV_FILE_DEFAULT}"
 LEGACY_DOCKER_ENV_FILE_PATH="${LEGACY_DOCKER_ENV_FILE_PATH:-$LEGACY_DOCKER_ENV_FILE}"
 LEGACY_ROOT_ENV_FILE_PATH="${LEGACY_ROOT_ENV_FILE_PATH:-$LEGACY_ROOT_ENV_FILE}"
 GATEWAY_STATE_DIR="${GATEWAY_STATE_DIR:-$STATE_DIR/gateway}"
-PROJECTIONS_DIR="${PROJECTIONS_DIR:-$STATE_DIR/projections}"
+PROJECTIONS_DIR="${PROJECTIONS_DIR:-$MEMORY_DIR/projections}"
 
 if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   OWNER_USER="${FREEWILLER_OWNER:-${SUDO_USER:-ubuntu}}"
@@ -59,24 +65,24 @@ build_snapshot_dir() {
   local compact_memory_path="$snapshot_dir/$SNAPSHOT_ROOT_NAME/memory/entries.compact.jsonl"
   local journal_path="$snapshot_dir/$SNAPSHOT_ROOT_NAME/memory/journal.jsonl"
 
-  mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/memory"
+  mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/memory" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/policy"
 
-  if [ -f "$STATE_DIR/local-llm.env" ]; then
-    cp "$STATE_DIR/local-llm.env" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/local-llm.env"
+  if [ -f "$LOCAL_LLM_ENV_FILE" ]; then
+    cp "$LOCAL_LLM_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/policy/local-llm.env"
   fi
 
-  if [ -f "$STATE_DIR/genie-gateway.env" ]; then
-    cp "$STATE_DIR/genie-gateway.env" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/genie-gateway.env"
+  if [ -f "$GENIE_GATEWAY_ENV_FILE" ]; then
+    cp "$GENIE_GATEWAY_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/policy/genie-gateway.env"
   elif [ -f "$STATE_DIR/freewiller-gateway.env" ]; then
-    cp "$STATE_DIR/freewiller-gateway.env" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/genie-gateway.env"
+    cp "$STATE_DIR/freewiller-gateway.env" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/policy/genie-gateway.env"
   fi
 
   if [ -f "$PROVIDER_ROUTING_ENV_FILE" ]; then
-    cp "$PROVIDER_ROUTING_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/provider-routing.env"
+    cp "$PROVIDER_ROUTING_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/policy/provider-routing.env"
   fi
 
   if [ -f "$PROVIDER_REGISTRY_FILE" ]; then
-    cp "$PROVIDER_REGISTRY_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/provider-registry.json"
+    cp "$PROVIDER_REGISTRY_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/policy/provider-registry.json"
   fi
 
   if [ -f "$ACCESS_ENV_FILE" ]; then
@@ -110,8 +116,8 @@ build_snapshot_dir() {
     cp "$PROVIDER_BENCHMARKS_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/telemetry/provider-benchmarks.json"
   fi
 
-  if [ -f "$STATE_DIR/memory/journal.jsonl" ]; then
-    cp "$STATE_DIR/memory/journal.jsonl" "$journal_path"
+  if [ -f "$MEMORY_DIR/journal.jsonl" ]; then
+    cp "$MEMORY_DIR/journal.jsonl" "$journal_path"
   fi
 
   if [ -d "$GATEWAY_STATE_DIR" ]; then
@@ -120,11 +126,11 @@ build_snapshot_dir() {
   fi
 
   if [ -d "$PROJECTIONS_DIR" ]; then
-    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/projections"
-    cp -R "$PROJECTIONS_DIR"/. "$snapshot_dir/$SNAPSHOT_ROOT_NAME/projections/"
+    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/memory/projections"
+    tar --exclude='*.migrated-*' -cf - -C "$PROJECTIONS_DIR" . | tar -xf - -C "$snapshot_dir/$SNAPSHOT_ROOT_NAME/memory/projections"
   fi
 
-  if [ -f "$STATE_DIR/memory/entries.jsonl" ]; then
+  if [ -f "$MEMORY_DIR/entries.jsonl" ]; then
     LOCAL_LLM_DIR="$STATE_DIR" python3 "$LOCAL_MEMORY_PY" export --compact --output "$compact_memory_path" >/dev/null
   fi
 
@@ -136,14 +142,14 @@ build_snapshot_dir() {
   "conf_env_present": $([ -f "$CONF_ENV_FILE" ] && echo true || echo false),
   "provider_routing_present": $([ -f "$PROVIDER_ROUTING_ENV_FILE" ] && echo true || echo false),
   "provider_registry_present": $([ -f "$PROVIDER_REGISTRY_FILE" ] && echo true || echo false),
-  "memory_entries": $(wc -l < "$STATE_DIR/memory/entries.jsonl" 2>/dev/null || echo 0),
-  "journal_events": $(wc -l < "$STATE_DIR/memory/journal.jsonl" 2>/dev/null || echo 0),
+  "memory_entries": $(wc -l < "$MEMORY_DIR/entries.jsonl" 2>/dev/null || echo 0),
+  "journal_events": $(wc -l < "$MEMORY_DIR/journal.jsonl" 2>/dev/null || echo 0),
   "provider_usage_events": $(wc -l < "$USAGE_LEDGER_FILE" 2>/dev/null || echo 0),
   "provider_health_present": $([ -f "$PROVIDER_HEALTH_FILE" ] && echo true || echo false),
   "provider_benchmarks_present": $([ -f "$PROVIDER_BENCHMARKS_FILE" ] && echo true || echo false),
   "memory_format": "hybrid-sqlite-compact-jsonl",
-  "worker_model": "$(grep -E '^QWEN_MODEL=' "$STATE_DIR/local-llm.env" 2>/dev/null | cut -d= -f2- || echo unknown)",
-  "embed_model": "$(grep -E '^EMBED_MODEL=' "$STATE_DIR/local-llm.env" 2>/dev/null | cut -d= -f2- || echo unknown)"
+  "worker_model": "$(grep -E '^QWEN_MODEL=' "$LOCAL_LLM_ENV_FILE" 2>/dev/null | cut -d= -f2- || echo unknown)",
+  "embed_model": "$(grep -E '^EMBED_MODEL=' "$LOCAL_LLM_ENV_FILE" 2>/dev/null | cut -d= -f2- || echo unknown)"
 }
 EOF
 }
@@ -167,6 +173,7 @@ save_backup() {
   local archive_path
 
   require_state
+  ensure_state_layout "$STATE_DIR"
   ensure_backup_dirs
 
   case "$mode" in
@@ -226,7 +233,8 @@ restore_backup() {
     fi
   fi
 
-  run_as_root mkdir -p "$STATE_DIR/memory"
+  ensure_state_layout "$STATE_DIR"
+  run_as_root mkdir -p "$MEMORY_DIR"
   run_as_root chown -R "$OWNER_USER:$OWNER_GROUP" "$STATE_DIR"
   temp_dir="$(mktemp -d)"
   tar -xzf "$backup_path" -C "$temp_dir"
@@ -241,22 +249,39 @@ restore_backup() {
     exit 1
   fi
 
-  if [ -f "$snapshot_dir/local-llm.env" ]; then
-    run_as_root install -m 644 "$snapshot_dir/local-llm.env" "$STATE_DIR/local-llm.env"
+  if [ -f "$snapshot_dir/policy/local-llm.env" ]; then
+    run_as_root mkdir -p "$POLICY_DIR"
+    run_as_root install -m 644 "$snapshot_dir/policy/local-llm.env" "$LOCAL_LLM_ENV_FILE"
+  elif [ -f "$snapshot_dir/local-llm.env" ]; then
+    run_as_root mkdir -p "$POLICY_DIR"
+    run_as_root install -m 644 "$snapshot_dir/local-llm.env" "$LOCAL_LLM_ENV_FILE"
   fi
 
-  if [ -f "$snapshot_dir/genie-gateway.env" ]; then
-    run_as_root install -m 600 "$snapshot_dir/genie-gateway.env" "$STATE_DIR/genie-gateway.env"
+  if [ -f "$snapshot_dir/policy/genie-gateway.env" ]; then
+    run_as_root mkdir -p "$POLICY_DIR"
+    run_as_root install -m 600 "$snapshot_dir/policy/genie-gateway.env" "$GENIE_GATEWAY_ENV_FILE"
+  elif [ -f "$snapshot_dir/genie-gateway.env" ]; then
+    run_as_root mkdir -p "$POLICY_DIR"
+    run_as_root install -m 600 "$snapshot_dir/genie-gateway.env" "$GENIE_GATEWAY_ENV_FILE"
   elif [ -f "$snapshot_dir/freewiller-gateway.env" ]; then
-    run_as_root install -m 600 "$snapshot_dir/freewiller-gateway.env" "$STATE_DIR/genie-gateway.env"
+    run_as_root mkdir -p "$POLICY_DIR"
+    run_as_root install -m 600 "$snapshot_dir/freewiller-gateway.env" "$GENIE_GATEWAY_ENV_FILE"
   fi
 
-  if [ -f "$snapshot_dir/provider-routing.env" ]; then
-    run_as_root install -m 600 "$snapshot_dir/provider-routing.env" "$STATE_DIR/provider-routing.env"
+  if [ -f "$snapshot_dir/policy/provider-routing.env" ]; then
+    run_as_root mkdir -p "$POLICY_DIR"
+    run_as_root install -m 600 "$snapshot_dir/policy/provider-routing.env" "$PROVIDER_ROUTING_ENV_FILE"
+  elif [ -f "$snapshot_dir/provider-routing.env" ]; then
+    run_as_root mkdir -p "$POLICY_DIR"
+    run_as_root install -m 600 "$snapshot_dir/provider-routing.env" "$PROVIDER_ROUTING_ENV_FILE"
   fi
 
-  if [ -f "$snapshot_dir/provider-registry.json" ]; then
-    run_as_root install -m 644 "$snapshot_dir/provider-registry.json" "$STATE_DIR/provider-registry.json"
+  if [ -f "$snapshot_dir/policy/provider-registry.json" ]; then
+    run_as_root mkdir -p "$POLICY_DIR"
+    run_as_root install -m 644 "$snapshot_dir/policy/provider-registry.json" "$PROVIDER_REGISTRY_FILE"
+  elif [ -f "$snapshot_dir/provider-registry.json" ]; then
+    run_as_root mkdir -p "$POLICY_DIR"
+    run_as_root install -m 644 "$snapshot_dir/provider-registry.json" "$PROVIDER_REGISTRY_FILE"
   fi
 
   if [ -f "$snapshot_dir/access.env" ]; then
@@ -297,7 +322,7 @@ restore_backup() {
   fi
 
   if [ -f "$journal_memory_path" ]; then
-    run_as_root install -m 644 "$journal_memory_path" "$STATE_DIR/memory/journal.jsonl"
+    run_as_root install -m 644 "$journal_memory_path" "$MEMORY_DIR/journal.jsonl"
   fi
 
   if [ -d "$snapshot_dir/gateway" ]; then
@@ -305,7 +330,10 @@ restore_backup() {
     run_as_root cp -R "$snapshot_dir/gateway"/. "$GATEWAY_STATE_DIR/"
   fi
 
-  if [ -d "$snapshot_dir/projections" ]; then
+  if [ -d "$snapshot_dir/memory/projections" ]; then
+    run_as_root mkdir -p "$PROJECTIONS_DIR"
+    run_as_root cp -R "$snapshot_dir/memory/projections"/. "$PROJECTIONS_DIR/"
+  elif [ -d "$snapshot_dir/projections" ]; then
     run_as_root mkdir -p "$PROJECTIONS_DIR"
     run_as_root cp -R "$snapshot_dir/projections"/. "$PROJECTIONS_DIR/"
   fi

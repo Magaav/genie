@@ -132,6 +132,19 @@ The runtime env is split into:
 
 Backups include both files, so secrets and runtime configuration can respawn with the node.
 
+State domains inside `/local/state/genie`:
+
+- `memory`
+  - journal, SQLite memory, compatibility export, and projections
+- `policy`
+  - local model config, frontier gateway config, and provider routing/registry files
+- `gateway`
+  - Telegram session and allowlist state
+- `telemetry`
+  - provider health, benchmarks, scorecards, discovery, and usage ledgers
+- `runtime`
+  - generated prompt packages, saved provider responses, bridge queues, and frontier sidecar runtime state
+
 ## Memory Layout
 
 Canonical memory lives in:
@@ -142,18 +155,18 @@ Canonical memory lives in:
 
 Native projections live in:
 
-- `/local/state/genie/projections/IDENTITY.md`
-- `/local/state/genie/projections/USER.md`
-- `/local/state/genie/projections/MEMORY.md`
-- `/local/state/genie/projections/BOUNDARIES.md`
-- `/local/state/genie/projections/PROJECT_STATE.md`
+- `/local/state/genie/memory/projections/IDENTITY.md`
+- `/local/state/genie/memory/projections/USER.md`
+- `/local/state/genie/memory/projections/MEMORY.md`
+- `/local/state/genie/memory/projections/BOUNDARIES.md`
+- `/local/state/genie/memory/projections/PROJECT_STATE.md`
 
 ## Provider State
 
 Brain Router state lives in:
 
-- `/local/state/genie/provider-routing.env`
-- `/local/state/genie/provider-registry.json`
+- `/local/state/genie/policy/provider-routing.env`
+- `/local/state/genie/policy/provider-registry.json`
 - `/local/state/genie/telemetry/provider-health.json`
 - `/local/state/genie/telemetry/provider-benchmarks.json`
 - `/local/state/genie/telemetry/provider-scorecards.json`
@@ -359,7 +372,7 @@ Genie no longer uses OpenClaw as its native runtime shape.
 But the current frontier adapter can still point at an OpenClaw-compatible gateway if one is configured in:
 
 ```bash
-/local/state/genie/genie-gateway.env
+/local/state/genie/policy/genie-gateway.env
 ```
 
 That keeps the strongest GPT-class lane available without making OpenClaw part of the native four-service node.

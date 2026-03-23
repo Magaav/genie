@@ -92,6 +92,19 @@ Runtime state lives under `/local` but is ignored by Git:
 - backups: `/local/backups`
 - dropped restore archives: `/local/feed`
 
+State domains:
+
+- `memory`
+  - journal, SQLite memory, compatibility export, and projections
+- `policy`
+  - local model config, frontier gateway config, and provider routing/registry
+- `gateway`
+  - Telegram session offsets and allowlists
+- `telemetry`
+  - provider health, benchmarks, scorecards, discovery, and usage ledgers
+- `runtime`
+  - generated packages, response captures, bridge queues, and frontier sidecar runtime state
+
 Canonical memory files:
 
 - journal: `/local/state/genie/memory/journal.jsonl`
@@ -100,16 +113,16 @@ Canonical memory files:
 
 Native projections:
 
-- `/local/state/genie/projections/IDENTITY.md`
-- `/local/state/genie/projections/USER.md`
-- `/local/state/genie/projections/MEMORY.md`
-- `/local/state/genie/projections/BOUNDARIES.md`
-- `/local/state/genie/projections/PROJECT_STATE.md`
+- `/local/state/genie/memory/projections/IDENTITY.md`
+- `/local/state/genie/memory/projections/USER.md`
+- `/local/state/genie/memory/projections/MEMORY.md`
+- `/local/state/genie/memory/projections/BOUNDARIES.md`
+- `/local/state/genie/memory/projections/PROJECT_STATE.md`
 
 Brain Router state:
 
-- `/local/state/genie/provider-routing.env`
-- `/local/state/genie/provider-registry.json`
+- `/local/state/genie/policy/provider-routing.env`
+- `/local/state/genie/policy/provider-registry.json`
 - `/local/state/genie/telemetry/provider-health.json`
 - `/local/state/genie/telemetry/provider-benchmarks.json`
 - `/local/state/genie/telemetry/provider-scorecards.json`
@@ -132,7 +145,7 @@ Brain Router state:
 
 - Ollama stays on the host.
 - The native node runs through `/local/docker/compose.yml`.
-- The live secret file is `/local/docker/.env`.
+- The live env files are `/local/docker/access.env` and `/local/docker/conf.env`.
 - Backups restore the memory store, projections, provider telemetry, and gateway state.
 - Frontier access is optional and treated as the highest-trust remote lane, not the default runtime shape.
 - Legacy OpenClaw paths are no longer part of the normal execution flow.

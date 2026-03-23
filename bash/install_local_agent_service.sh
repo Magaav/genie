@@ -18,8 +18,9 @@ LEGACY_LOG_DIR_PRIMARY="/local/log/freewiller"
 LEGACY_LOG_DIR_SECONDARY="/var/log/freewiller"
 LEGACY_LOG_DIR_TERTIARY="/var/log/openclaw"
 LOCAL_LLM_DIR="${LOCAL_LLM_DIR:-$DEFAULT_LOCAL_LLM_DIR}"
-LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-${LOCAL_LLM_DIR}/local-llm.env}"
-LEGACY_TELEGRAM_ALLOWLIST_FILE="/local/state/genie/frontier/openclaw/runtime/credentials/telegram-default-allowFrom.json"
+POLICY_DIR="${GENIE_POLICY_DIR:-${LOCAL_LLM_DIR}/policy}"
+LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-${POLICY_DIR}/local-llm.env}"
+LEGACY_TELEGRAM_ALLOWLIST_FILE="/local/state/genie/runtime/frontier/openclaw/runtime/credentials/telegram-default-allowFrom.json"
 GATEWAY_STATE_DIR="${LOCAL_LLM_DIR}/gateway"
 GATEWAY_ALLOWLIST_FILE="${GATEWAY_STATE_DIR}/telegram-allowlist.json"
 
@@ -170,6 +171,7 @@ main() {
   ensure_docker
   ensure_compose_env_files
   migrate_legacy_paths
+  ensure_state_layout "$LOCAL_LLM_DIR"
   migrate_legacy_gateway_state
   ensure_local_llm_config
   run_as_root mkdir -p "$LOCAL_LLM_DIR" "${FREEWILLER_LOG_DIR:-$DEFAULT_LOG_DIR}"

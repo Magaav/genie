@@ -16,37 +16,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from genie_state import ensure_state_layout, resolve_state_dir
 
-def resolve_state_dir() -> Path:
-    if os.environ.get("LOCAL_LLM_DIR"):
-        return Path(os.environ["LOCAL_LLM_DIR"])
-    default_path = Path("/local/state/genie")
-    primary_legacy_path = Path("/local/state/freewiller")
-    secondary_legacy_path = Path("/var/lib/freewiller")
-    tertiary_legacy_path = Path("/var/lib/openclaw-local-llm")
-    if default_path.exists():
-        return default_path
-    if primary_legacy_path.exists():
-        return primary_legacy_path
-    if secondary_legacy_path.exists():
-        return secondary_legacy_path
-    if tertiary_legacy_path.exists():
-        return tertiary_legacy_path
-    return default_path
-
-
-LOCAL_LLM_DIR = resolve_state_dir()
-MEMORY_DIR = LOCAL_LLM_DIR / "memory"
-MEMORY_DB = MEMORY_DIR / "entries.jsonl"
-MEMORY_SQLITE_DB = MEMORY_DIR / "memory.sqlite3"
-MEMORY_JOURNAL = MEMORY_DIR / "journal.jsonl"
-PROJECTIONS_DIR = LOCAL_LLM_DIR / "projections"
+STATE_LAYOUT = ensure_state_layout(resolve_state_dir())
+LOCAL_LLM_DIR = STATE_LAYOUT["state_dir"]
+MEMORY_DIR = STATE_LAYOUT["memory_dir"]
+MEMORY_DB = STATE_LAYOUT["memory_db_file"]
+MEMORY_SQLITE_DB = STATE_LAYOUT["memory_sqlite_file"]
+MEMORY_JOURNAL = STATE_LAYOUT["memory_journal_file"]
+PROJECTIONS_DIR = STATE_LAYOUT["memory_projections_dir"]
 PROJECTION_IDENTITY_FILE = PROJECTIONS_DIR / "IDENTITY.md"
 PROJECTION_USER_FILE = PROJECTIONS_DIR / "USER.md"
 PROJECTION_MEMORY_FILE = PROJECTIONS_DIR / "MEMORY.md"
 PROJECTION_BOUNDARIES_FILE = PROJECTIONS_DIR / "BOUNDARIES.md"
 PROJECTION_PROJECT_STATE_FILE = PROJECTIONS_DIR / "PROJECT_STATE.md"
-PROJECTION_DAILY_DIR = PROJECTIONS_DIR / "memory"
+PROJECTION_DAILY_DIR = STATE_LAYOUT["memory_daily_dir"]
 PROJECTION_LONG_TERM_LIMIT = max(4, int(os.environ.get("FREEWILLER_PROJECTION_LONG_TERM_LIMIT", "12")))
 PROJECTION_DAILY_LIMIT = max(8, int(os.environ.get("FREEWILLER_PROJECTION_DAILY_LIMIT", "40")))
 LOCAL_LLM_SH = Path("/local/bash/local_llm.sh")

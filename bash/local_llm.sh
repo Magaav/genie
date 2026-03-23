@@ -5,7 +5,9 @@ set -euo pipefail
 source "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/system/env.sh"
 
 LOCAL_LLM_DIR="${LOCAL_LLM_DIR:-$(resolve_state_dir)}"
-LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-${LOCAL_LLM_DIR}/local-llm.env}"
+POLICY_DIR="${GENIE_POLICY_DIR:-${LOCAL_LLM_DIR}/policy}"
+ensure_state_layout "$LOCAL_LLM_DIR"
+LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-${POLICY_DIR}/local-llm.env}"
 OLLAMA_API_URL="${OLLAMA_API_URL:-http://127.0.0.1:11434}"
 DEFAULT_MODEL="${DEFAULT_MODEL:-qwen3:0.6b}"
 DEFAULT_EMBED_MODEL="${DEFAULT_EMBED_MODEL:-nomic-embed-text}"

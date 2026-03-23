@@ -13,8 +13,8 @@ OPENCLAW_NODE_GID="${OPENCLAW_NODE_GID:-1000}"
 OPENCLAW_REPO_URL="${OPENCLAW_REPO_URL:-https://github.com/openclaw/openclaw.git}"
 OPENCLAW_PINNED_COMMIT="${OPENCLAW_PINNED_COMMIT:-52a0aa06723fbad5e7c2b0fc07fe04eef433d1c7}"
 OPENCLAW_RUNTIME_IMAGE="${OPENCLAW_RUNTIME_IMAGE:-ghcr.io/openclaw/openclaw@sha256:97f106719e545adf49b127ef4e58019beaf7e99702a003727d3d45ccbbb748c0}"
-OPENCLAW_REPO_DIR="${OPENCLAW_REPO_DIR:-/local/state/genie/frontier/openclaw/repo}"
-OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-/local/state/genie/frontier/openclaw/runtime}"
+OPENCLAW_REPO_DIR="${OPENCLAW_REPO_DIR:-$(resolve_state_dir)/runtime/frontier/openclaw/repo}"
+OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$(resolve_state_dir)/runtime/frontier/openclaw/runtime}"
 OPENCLAW_WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-${OPENCLAW_CONFIG_DIR}/workspace}"
 OPENCLAW_CONTAINER_WORKSPACE_DIR="${OPENCLAW_CONTAINER_WORKSPACE_DIR:-/home/node/.openclaw/workspace}"
 OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
@@ -23,9 +23,9 @@ OPENCLAW_GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
 OPENCLAW_RUN_ONBOARD="${OPENCLAW_RUN_ONBOARD:-0}"
 OPENCLAW_WAIT_URL="${OPENCLAW_WAIT_URL:-http://127.0.0.1:${OPENCLAW_GATEWAY_PORT}/healthz}"
 OPENCLAW_ENV_FILE="${OPENCLAW_REPO_DIR}/.env"
-GENIE_GATEWAY_ENV_FILE="${GENIE_GATEWAY_ENV_FILE:-$(resolve_state_dir)/genie-gateway.env}"
+GENIE_GATEWAY_ENV_FILE="${GENIE_GATEWAY_ENV_FILE:-$(resolve_state_dir)/policy/genie-gateway.env}"
 FREEWILLER_GATEWAY_ENV_FILE="${FREEWILLER_GATEWAY_ENV_FILE:-$GENIE_GATEWAY_ENV_FILE}"
-OPENCLAW_SEED_METADATA_DIR="${OPENCLAW_SEED_METADATA_DIR:-$(resolve_state_dir)/frontier/openclaw/seed}"
+OPENCLAW_SEED_METADATA_DIR="${OPENCLAW_SEED_METADATA_DIR:-$(resolve_state_dir)/runtime/frontier/openclaw/seed}"
 OPENCLAW_SEED_METADATA_FILE="${OPENCLAW_SEED_METADATA_DIR}/seed.json"
 OPENCLAW_COMPOSE_OVERRIDE_FILE="${OPENCLAW_COMPOSE_OVERRIDE_FILE:-${OPENCLAW_SEED_METADATA_DIR}/docker-compose.override.yml}"
 OPENCLAW_EXTERNAL_AUTH_DIR="${OPENCLAW_EXTERNAL_AUTH_DIR:-${OPENCLAW_CONFIG_DIR}/external-auth}"
@@ -249,7 +249,7 @@ EOF
 }
 
 install_aliases() {
-  local alias_line="alias genie-frontier='docker compose --project-name genie-frontier -f /local/state/genie/frontier/openclaw/repo/docker-compose.yml -f $(resolve_state_dir)/frontier/openclaw/seed/docker-compose.override.yml exec openclaw-gateway node dist/index.js'"
+  local alias_line="alias genie-frontier='docker compose --project-name genie-frontier -f $(resolve_state_dir)/runtime/frontier/openclaw/repo/docker-compose.yml -f $(resolve_state_dir)/runtime/frontier/openclaw/seed/docker-compose.override.yml exec openclaw-gateway node dist/index.js'"
   if ! grep -Fq "$alias_line" "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
     echo "$alias_line" >> "$ACTUAL_HOME/.bashrc"
   fi
@@ -265,6 +265,7 @@ maybe_run_onboard() {
 
 main() {
   ensure_docker
+  ensure_state_layout "$(resolve_state_dir)"
   log_step "Syncing pinned OpenClaw source seed"
   sync_openclaw_repo
 
