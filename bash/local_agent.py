@@ -281,6 +281,43 @@ def response_prefix_for_provider(provider_id: str) -> str:
     return f"freewiller-{safe_id}-response"
 
 
+def assess_provider_output(task_class: str, response_text: str, selection_confidence: float) -> dict[str, Any]:
+    trimmed = response_text.strip()
+    if not trimmed:
+        return {"needs_escalation": True, "reason": "empty response", "quality": "empty"}
+
+    lowered = trimmed.lower()
+    if any(token in lowered for token in ("i can't help with that", "i cannot help with that", "not enough context", "unable to comply")):
+        return {"needs_escalation": True, "reason": "provider refusal or insufficient-context reply", "quality": "weak"}
+
+    if task_class == "extract":
+        try:
+            parsed = json.loads(trimmed)
+        except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, (dict, list)):
+            return {"needs_escalation": True, "reason": "extract output is not valid JSON", "quality": "invalid"}
+
+    minimum_chars = {
+        "chat": 12,
+        "summarize": 30,
+        "extract": 10,
+        "compact": 90,
+        "reflect": 80,
+        "research_public": 100,
+    }.get(task_class, 20)
+    if len(trimmed) < minimum_chars:
+        return {"needs_escalation": True, "reason": f"response too short for {task_class}", "quality": "thin"}
+
+    if task_class in {"compact", "reflect", "research_public"} and selection_confidence < 0.48:
+        return {"needs_escalation": True, "reason": "low-confidence selection for a heavy task", "quality": "uncertain"}
+
+    if task_class in {"chat", "summarize", "extract"} and selection_confidence < 0.40:
+        return {"needs_escalation": True, "reason": "very low-confidence selection", "quality": "uncertain"}
+
+    return {"needs_escalation": False, "reason": "accepted", "quality": "acceptable"}
+
+
 def wait_for_gateway_live(gateway_url: str, timeout_seconds: float = 15.0) -> None:
     deadline = time.time() + timeout_seconds
     health_url = f"{gateway_url.rstrip('/')}/healthz"
@@ -572,6 +609,8 @@ def dispatch_to_provider(
     ranked_providers = provider_plan.get("ranked_providers") or [provider_plan["selected_provider"]]
     failovers: list[dict[str, Any]] = []
     last_error = "Provider dispatch failed."
+    selection_confidence = float(provider_plan.get("selection_confidence", 1.0) or 1.0)
+    escalate_on_low_confidence = bool(provider_plan.get("escalate_on_low_confidence", False))
 
     for attempt_number, provider_view in enumerate(ranked_providers, start=1):
         provider_id = provider_view["id"]
@@ -619,6 +658,44 @@ def dispatch_to_provider(
                     "failovers": failovers,
                 }
             )
+            output_assessment = assess_provider_output(provider_plan["task_class"], result["response_text"], selection_confidence)
+            if (
+                escalate_on_low_confidence
+                and provider_id != "frontier_gateway"
+                and attempt_number < len(ranked_providers)
+                and output_assessment["needs_escalation"]
+            ):
+                provider_router.append_usage_ledger(
+                    {
+                        "provider_id": provider_id,
+                        "provider_kind": provider_kind,
+                        "provider_model": provider.get("model", ""),
+                        "task_class": provider_plan["task_class"],
+                        "privacy_class": provider_plan["privacy_class"],
+                        "status": "escalated",
+                        "attempt": attempt_number,
+                        "latency_ms": latency_ms,
+                        "package_path": package_path,
+                        "package_chars": package_chars,
+                        "response_json_path": result["response_json_path"],
+                        "response_text_path": result["response_text_path"],
+                        "usage": usage,
+                        "estimated_cost_usd": estimated_cost_usd,
+                        "escalation_reason": output_assessment["reason"],
+                        "failovers": failovers,
+                    }
+                )
+                failovers.append(
+                    {
+                        "provider_id": provider_id,
+                        "attempt": attempt_number,
+                        "status": "escalated",
+                        "reason": output_assessment["reason"],
+                        "usage_log_path": usage_log_path,
+                    }
+                )
+                last_error = f"Escalated after weak output from {provider_id}: {output_assessment['reason']}"
+                continue
             result["usage"] = usage
             result["estimated_cost_usd"] = estimated_cost_usd
             result["usage_log_path"] = usage_log_path
@@ -626,6 +703,7 @@ def dispatch_to_provider(
             result["provider_kind"] = provider_kind
             result["provider_model"] = provider.get("model", "")
             result["failovers"] = failovers
+            result["output_assessment"] = output_assessment
             return result
         except Exception as exc:
             latency_ms = int((time.time() - started_at) * 1000)
@@ -745,6 +823,7 @@ def dispatch(args: argparse.Namespace) -> int:
     output["provider_kind"] = provider_result["provider_kind"]
     output["provider_model"] = provider_result["provider_model"]
     output["failovers"] = provider_result["failovers"]
+    output["output_assessment"] = provider_result.get("output_assessment", {})
     print(json.dumps(output, indent=2, ensure_ascii=True))
     return 0
 

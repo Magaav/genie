@@ -27,10 +27,13 @@
       "enabled": true,
       "provider_family": "nvidia",
       "kind": "openai_compatible",
-      "api_key_env": "NVIDIA_KIMI_K25_API_KEY",
+      "api_key_env": "NVIDIA_API_KEY",
       "api_base_url": "https://integrate.api.nvidia.com/v1",
       "model": "moonshotai/kimi-k2.5",
       "api_mode": "chat",
+      "latency_tier": "slow",
+      "strength_tier": "powerful",
+      "interactive": false,
       "extra_body": {
         "thinking": {
           "type": "disabled"
@@ -38,7 +41,7 @@
       },
       "trust_tier": "trusted_external",
       "allowed_privacy": ["public", "internal"],
-      "allowed_tasks": ["chat", "classify", "compact", "extract", "reflect", "research_public", "summarize"],
+      "allowed_tasks": ["compact", "reflect", "research_public"],
       "max_output_tokens": 1024,
       "request_timeout_seconds": 240,
       "cost_input_per_million": null,

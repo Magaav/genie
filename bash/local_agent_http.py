@@ -124,6 +124,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return
 
+        if parsed.path == "/providers/scorecards":
+            try:
+                refresh = query.get("refresh", ["0"])[0].strip().lower() in {"1", "true", "yes", "on"}
+                self._write_json(HTTPStatus.OK, local_agent.provider_router.scorecards_public_view(refresh=refresh))
+            except Exception as exc:
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return
+
         if parsed.path == "/memory/stats":
             try:
                 self._write_json(HTTPStatus.OK, local_memory.memory_stats())
@@ -235,6 +243,7 @@ class Handler(BaseHTTPRequestHandler):
                 result["provider_kind"] = provider_result["provider_kind"]
                 result["provider_model"] = provider_result["provider_model"]
                 result["failovers"] = provider_result["failovers"]
+                result["output_assessment"] = provider_result.get("output_assessment", {})
                 self._write_json(HTTPStatus.OK, result)
                 return
 

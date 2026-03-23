@@ -165,6 +165,7 @@ curl -s http://127.0.0.1:18790/policy
 curl -s http://127.0.0.1:18790/providers
 curl -s 'http://127.0.0.1:18790/providers/ranking?task_class=summarize&privacy_class=public'
 curl -s http://127.0.0.1:18790/providers/health
+curl -s http://127.0.0.1:18790/providers/scorecards
 curl -s http://127.0.0.1:18790/memory/stats
 bash /local/bash/backup_freewiller.sh list
 sudo crontab -l
@@ -246,6 +247,7 @@ The local-agent provider interfaces are:
 - `GET /providers`
 - `GET /providers/ranking`
 - `GET /providers/health`
+- `GET /providers/scorecards`
 - `POST /providers/evaluate`
 
 The CLI interface is:
@@ -255,13 +257,14 @@ python3 /local/bash/provider_router.py providers
 python3 /local/bash/provider_router.py rank --task-class summarize --privacy-class public
 python3 /local/bash/provider_router.py health
 python3 /local/bash/provider_router.py heartbeat
+python3 /local/bash/provider_router.py scorecards --refresh
 python3 /local/bash/provider_router.py evaluate --profile summarize
 ```
 
 Example NVIDIA cheap-lane config in `/local/.env`:
 
 ```bash
-NVIDIA_KIMI_K25_API_KEY='your_kimi_key'
+NVIDIA_API_KEY='your_nvidia_key'
 ```
 
 Kimi K2.5 is wired in instant mode by default so it does not waste tokens on thinking traces. After updating `.env`, apply it with:
@@ -271,12 +274,36 @@ bash /local/bash/install_local_llm.sh
 bash /local/bash/install_local_agent_service.sh
 ```
 
-Supported NVIDIA secret names are:
+Freewiller now treats NVIDIA as one shared provider account. Put a single key in `/local/.env`:
 
-- `NVIDIA_KIMI_K25_API_KEY`
-- `NVIDIA_GPT_OSS_120B_API_KEY`
+- `NVIDIA_API_KEY`
+
+The router will auto-enable the curated NVIDIA model catalog behind that key, including:
+
+- `openai/gpt-oss-120b`
+- `moonshotai/kimi-k2-instruct`
+- `qwen/qwen3-next-80b-a3b-instruct`
+- `moonshotai/kimi-k2.5`
+- `z-ai/glm5`
+- `z-ai/glm4.7`
+- `deepseek-ai/deepseek-v3.1`
+- `qwen/qwen3.5-397b-a17b`
+- `nvidia/nemotron-3-nano-30b-a3b`
 
 Unsupported dotted or malformed provider keys are ignored with warnings during registry sync. Do not use names like `NVIDEA_KIMI_K2.5_API_KEY`.
+
+Freewiller keeps task-family scorecards under:
+
+```bash
+/local/state/freewiller/telemetry/provider-scorecards.json
+```
+
+It uses those scorecards plus live health to rank providers per task family, reserve slow-powerful models for background work, and fall back when the frontier lane is exhausted.
+
+The frontier exhaustion switches are:
+
+- `FREEWILLER_FRONTIER_EXHAUSTED_FALLBACK=1`
+- `FREEWILLER_FRONTIER_EXHAUSTED=0`
 
 ## OpenClaw Seed Integration
 

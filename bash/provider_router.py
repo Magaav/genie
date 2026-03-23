@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+from collections import deque
 import json
 import os
 import re
@@ -88,6 +89,121 @@ SCORE_WEIGHTS = {
     "cost_score": 0.10,
     "trust_score": 0.10,
 }
+SCORECARD_WINDOW = 400
+DIRECT_CONFIDENCE_THRESHOLD = 0.62
+FRONTIER_REVIEW_CONFIDENCE_THRESHOLD = 0.56
+SMALL_GAP_THRESHOLD = 0.05
+FRONTIER_REVIEW_TASKS = {"chat", "summarize", "extract", "compact", "reflect", "research_public"}
+NVIDIA_MODEL_CATALOG = [
+    {
+        "id": "nvidia_gpt_oss_120b",
+        "label": "NVIDIA GPT OSS 120B",
+        "model": "openai/gpt-oss-120b",
+        "latency_tier": "normal",
+        "strength_tier": "powerful",
+        "interactive": True,
+        "allowed_tasks": sorted(CHEAP_ELIGIBLE_TASKS),
+        "max_output_tokens": 4096,
+        "request_timeout_seconds": 90,
+        "extra_body": {},
+    },
+    {
+        "id": "nvidia_kimi_k2_instruct",
+        "label": "NVIDIA Kimi K2 Instruct",
+        "model": "moonshotai/kimi-k2-instruct",
+        "latency_tier": "normal",
+        "strength_tier": "strong",
+        "interactive": True,
+        "allowed_tasks": sorted(CHEAP_ELIGIBLE_TASKS),
+        "max_output_tokens": 4096,
+        "request_timeout_seconds": 90,
+        "extra_body": {},
+    },
+    {
+        "id": "nvidia_qwen3_next_80b_a3b_instruct",
+        "label": "NVIDIA Qwen3 Next 80B A3B Instruct",
+        "model": "qwen/qwen3-next-80b-a3b-instruct",
+        "latency_tier": "normal",
+        "strength_tier": "powerful",
+        "interactive": True,
+        "allowed_tasks": sorted(CHEAP_ELIGIBLE_TASKS),
+        "max_output_tokens": 4096,
+        "request_timeout_seconds": 120,
+        "extra_body": {},
+    },
+    {
+        "id": "nvidia_kimi_k2_5",
+        "label": "NVIDIA Kimi K2.5",
+        "model": "moonshotai/kimi-k2.5",
+        "latency_tier": "slow",
+        "strength_tier": "powerful",
+        "interactive": False,
+        "allowed_tasks": sorted(SLOW_POWERFUL_TASKS),
+        "max_output_tokens": 1024,
+        "request_timeout_seconds": 240,
+        "extra_body": {"thinking": {"type": "disabled"}},
+    },
+    {
+        "id": "nvidia_glm5",
+        "label": "NVIDIA GLM5",
+        "model": "z-ai/glm5",
+        "latency_tier": "slow",
+        "strength_tier": "powerful",
+        "interactive": False,
+        "allowed_tasks": sorted(SLOW_POWERFUL_TASKS),
+        "max_output_tokens": 16384,
+        "request_timeout_seconds": 240,
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": True, "clear_thinking": False}},
+    },
+    {
+        "id": "nvidia_glm4_7",
+        "label": "NVIDIA GLM4.7",
+        "model": "z-ai/glm4.7",
+        "latency_tier": "slow",
+        "strength_tier": "powerful",
+        "interactive": False,
+        "allowed_tasks": sorted(SLOW_POWERFUL_TASKS),
+        "max_output_tokens": 16384,
+        "request_timeout_seconds": 240,
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": True, "clear_thinking": False}},
+    },
+    {
+        "id": "nvidia_deepseek_v3_1",
+        "label": "NVIDIA DeepSeek V3.1",
+        "model": "deepseek-ai/deepseek-v3.1",
+        "latency_tier": "slow",
+        "strength_tier": "powerful",
+        "interactive": False,
+        "allowed_tasks": sorted(SLOW_POWERFUL_TASKS),
+        "max_output_tokens": 8192,
+        "request_timeout_seconds": 240,
+        "extra_body": {"chat_template_kwargs": {"thinking": True}},
+    },
+    {
+        "id": "nvidia_qwen3_5_397b_a17b",
+        "label": "NVIDIA Qwen3.5 397B A17B",
+        "model": "qwen/qwen3.5-397b-a17b",
+        "latency_tier": "slow",
+        "strength_tier": "powerful",
+        "interactive": False,
+        "allowed_tasks": sorted(SLOW_POWERFUL_TASKS),
+        "max_output_tokens": 16384,
+        "request_timeout_seconds": 240,
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": True}},
+    },
+    {
+        "id": "nvidia_nemotron_3_nano_30b_a3b",
+        "label": "NVIDIA Nemotron 3 Nano 30B A3B",
+        "model": "nvidia/nemotron-3-nano-30b-a3b",
+        "latency_tier": "slow",
+        "strength_tier": "strong",
+        "interactive": False,
+        "allowed_tasks": sorted(SLOW_POWERFUL_TASKS),
+        "max_output_tokens": 16384,
+        "request_timeout_seconds": 240,
+        "extra_body": {"reasoning_budget": 16384, "chat_template_kwargs": {"enable_thinking": True}},
+    },
+]
 
 
 def resolve_state_dir() -> Path:
@@ -116,6 +232,7 @@ TELEMETRY_DIR = LOCAL_LLM_DIR / "telemetry"
 DEFAULT_USAGE_LEDGER_FILE = TELEMETRY_DIR / "provider-usage.jsonl"
 DEFAULT_HEALTH_FILE = TELEMETRY_DIR / "provider-health.json"
 DEFAULT_BENCHMARKS_FILE = TELEMETRY_DIR / "provider-benchmarks.json"
+DEFAULT_SCORECARDS_FILE = TELEMETRY_DIR / "provider-scorecards.json"
 
 
 def utc_now() -> str:
@@ -323,7 +440,7 @@ def detect_repo_env_warnings() -> list[str]:
     repo_keys = read_repo_env_keys()
     if "NVIDEA_KIMI_K2.5_API_KEY" in repo_keys:
         warnings.append(
-            "Unsupported .env key NVIDEA_KIMI_K2.5_API_KEY detected. Rename it to NVIDIA_KIMI_K25_API_KEY."
+            "Unsupported .env key NVIDEA_KIMI_K2.5_API_KEY detected. Rename it to NVIDIA_API_KEY."
         )
 
     for key in repo_keys:
@@ -369,82 +486,43 @@ def default_registry_entry_frontier(raw: dict[str, str]) -> dict[str, Any]:
     }
 
 
-def default_registry_entry_nvidia(raw: dict[str, str]) -> dict[str, Any] | None:
-    api_key_env = first_present_key(raw, "NVIDIA_KIMI_K25_API_KEY", "FREEWILLER_NVIDIA_API_KEY", "NVIDIA_API_KEY", "NGC_API_KEY")
+def default_registry_entries_nvidia(raw: dict[str, str]) -> list[dict[str, Any]]:
+    api_key_env = first_present_key(raw, "NVIDIA_API_KEY", "FREEWILLER_NVIDIA_API_KEY", "NGC_API_KEY", "NVIDIA_KIMI_K25_API_KEY")
     if not api_key_env:
-        return None
+        return []
 
-    model = env_get(raw, "FREEWILLER_NVIDIA_MODEL", "NVIDIA_MODEL", default="moonshotai/kimi-k2.5")
-    extra_body_raw = env_get(raw, "FREEWILLER_NVIDIA_EXTRA_BODY_JSON", "NVIDIA_EXTRA_BODY_JSON")
-    if not extra_body_raw and model.startswith("moonshotai/kimi-k2.5"):
-        extra_body_raw = '{"thinking":{"type":"disabled"}}'
+    api_base_url = env_get(raw, "FREEWILLER_NVIDIA_API_BASE_URL", "NVIDIA_API_BASE_URL", default="https://integrate.api.nvidia.com/v1")
+    api_mode = env_get(raw, "FREEWILLER_NVIDIA_API_MODE", "NVIDIA_API_MODE", default="chat")
+    entries: list[dict[str, Any]] = []
 
-    extra_body: dict[str, Any] = {}
-    if extra_body_raw:
-        try:
-            decoded = json.loads(extra_body_raw)
-            if isinstance(decoded, dict):
-                extra_body = decoded
-        except json.JSONDecodeError:
-            extra_body = {}
+    for spec in NVIDIA_MODEL_CATALOG:
+        entries.append(
+            {
+                "id": spec["id"],
+                "label": spec["label"],
+                "enabled": True,
+                "provider_family": "nvidia",
+                "kind": "openai_compatible",
+                "api_key_env": api_key_env,
+                "api_base_url": api_base_url,
+                "model": spec["model"],
+                "api_mode": api_mode,
+                "extra_body": spec.get("extra_body", {}),
+                "trust_tier": "trusted_external",
+                "latency_tier": spec.get("latency_tier", "normal"),
+                "strength_tier": spec.get("strength_tier", "strong"),
+                "interactive": bool(spec.get("interactive", True)),
+                "allowed_privacy": ["public", "internal"],
+                "allowed_tasks": list(spec["allowed_tasks"]),
+                "max_output_tokens": int(spec["max_output_tokens"]),
+                "request_timeout_seconds": int(spec["request_timeout_seconds"]),
+                "cost_input_per_million": env_float(raw, f"{spec['id'].upper()}_INPUT_COST_PER_MILLION"),
+                "cost_output_per_million": env_float(raw, f"{spec['id'].upper()}_OUTPUT_COST_PER_MILLION"),
+                "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+            }
+        )
 
-    return {
-        "id": "nvidia_kimi_k2_5",
-        "label": "NVIDIA Kimi K2.5",
-        "enabled": True,
-        "provider_family": "nvidia",
-        "kind": "openai_compatible",
-        "api_key_env": api_key_env,
-        "api_base_url": env_get(raw, "FREEWILLER_NVIDIA_API_BASE_URL", "NVIDIA_API_BASE_URL", default="https://integrate.api.nvidia.com/v1"),
-        "model": model,
-        "api_mode": env_get(raw, "FREEWILLER_NVIDIA_API_MODE", "NVIDIA_API_MODE", default="chat"),
-        "extra_body": extra_body,
-        "trust_tier": "trusted_external",
-        "latency_tier": "slow",
-        "strength_tier": "powerful",
-        "interactive": False,
-        "allowed_privacy": ["public", "internal"],
-        "allowed_tasks": sorted(SLOW_POWERFUL_TASKS),
-        "max_output_tokens": env_int(raw, "FREEWILLER_NVIDIA_MAX_OUTPUT_TOKENS", env_int(raw, "NVIDIA_MAX_OUTPUT_TOKENS", 1024)),
-        "request_timeout_seconds": env_int(raw, "FREEWILLER_NVIDIA_REQUEST_TIMEOUT_SECONDS", env_int(raw, "NVIDIA_REQUEST_TIMEOUT_SECONDS", 240)),
-        "cost_input_per_million": env_float(raw, "FREEWILLER_NVIDIA_INPUT_COST_PER_MILLION"),
-        "cost_output_per_million": env_float(raw, "FREEWILLER_NVIDIA_OUTPUT_COST_PER_MILLION"),
-        "benchmark_profiles": sorted(BENCHMARK_PROFILES),
-    }
-
-
-def default_registry_entry_nvidia_gpt_oss_120b(raw: dict[str, str]) -> dict[str, Any] | None:
-    api_key_env = first_present_key(
-        raw,
-        "NVIDIA_GPT_OSS_120B_API_KEY",
-        "FREEWILLER_NVIDIA_GPT_OSS_120B_API_KEY",
-    )
-    if not api_key_env:
-        return None
-
-    return {
-        "id": "nvidia_gpt_oss_120b",
-        "label": "NVIDIA GPT OSS 120B",
-        "enabled": True,
-        "provider_family": "nvidia",
-        "kind": "openai_compatible",
-        "api_key_env": api_key_env,
-        "api_base_url": env_get(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_API_BASE_URL", "NVIDIA_GPT_OSS_120B_API_BASE_URL", default="https://integrate.api.nvidia.com/v1"),
-        "model": env_get(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_MODEL", "NVIDIA_GPT_OSS_120B_MODEL", default="openai/gpt-oss-120b"),
-        "api_mode": env_get(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_API_MODE", default="chat"),
-        "extra_body": {},
-        "trust_tier": "trusted_external",
-        "latency_tier": "slow",
-        "strength_tier": "powerful",
-        "interactive": False,
-        "allowed_privacy": ["public", "internal"],
-        "allowed_tasks": sorted(SLOW_POWERFUL_TASKS),
-        "max_output_tokens": env_int(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_MAX_OUTPUT_TOKENS", 1024),
-        "request_timeout_seconds": env_int(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_REQUEST_TIMEOUT_SECONDS", 240),
-        "cost_input_per_million": env_float(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_INPUT_COST_PER_MILLION"),
-        "cost_output_per_million": env_float(raw, "FREEWILLER_NVIDIA_GPT_OSS_120B_OUTPUT_COST_PER_MILLION"),
-        "benchmark_profiles": sorted(BENCHMARK_PROFILES),
-    }
+    return entries
 
 
 def default_registry_entry_openrouter(raw: dict[str, str]) -> dict[str, Any] | None:
@@ -506,24 +584,18 @@ def default_registry_entry_legacy(raw: dict[str, str], *, public_only: bool) -> 
 
 def default_registry_entries(raw: dict[str, str]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = [default_registry_entry_frontier(raw)]
-    nvidia_entry = default_registry_entry_nvidia(raw)
-    nvidia_gpt_oss_entry = default_registry_entry_nvidia_gpt_oss_120b(raw)
+    nvidia_entries = default_registry_entries_nvidia(raw)
     openrouter_entry = default_registry_entry_openrouter(raw)
     legacy_cheap_entry = default_registry_entry_legacy(raw, public_only=False)
     legacy_public_entry = default_registry_entry_legacy(raw, public_only=True)
 
-    if nvidia_entry:
+    if nvidia_entries:
         legacy_cheap_entry = None
     if openrouter_entry:
         legacy_public_entry = None
 
-    for candidate in (
-        nvidia_entry,
-        nvidia_gpt_oss_entry,
-        openrouter_entry,
-        legacy_cheap_entry,
-        legacy_public_entry,
-    ):
+    entries.extend(nvidia_entries)
+    for candidate in (openrouter_entry, legacy_cheap_entry, legacy_public_entry):
         if candidate:
             entries.append(candidate)
     return entries
@@ -574,7 +646,21 @@ def normalize_provider_entry(raw_entry: dict[str, Any]) -> dict[str, Any]:
 def merge_registry_entries(existing_entries: list[dict[str, Any]], auto_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     auto_index = {entry["id"]: normalize_provider_entry(entry) for entry in auto_entries}
-    auto_managed_ids = {"frontier_gateway", "nvidia_kimi_k2_5", "nvidia_gpt_oss_120b", "openrouter_auto", "legacy_cheap", "legacy_public"}
+    auto_managed_ids = {
+        "frontier_gateway",
+        "nvidia_gpt_oss_120b",
+        "nvidia_kimi_k2_instruct",
+        "nvidia_qwen3_next_80b_a3b_instruct",
+        "nvidia_kimi_k2_5",
+        "nvidia_glm5",
+        "nvidia_glm4_7",
+        "nvidia_deepseek_v3_1",
+        "nvidia_qwen3_5_397b_a17b",
+        "nvidia_nemotron_3_nano_30b_a3b",
+        "openrouter_auto",
+        "legacy_cheap",
+        "legacy_public",
+    }
 
     for entry in auto_entries:
         normalized = normalize_provider_entry(entry)
@@ -659,6 +745,25 @@ def load_benchmark_store() -> dict[str, Any]:
 def save_benchmark_store(payload: dict[str, Any]) -> None:
     payload["updated_at"] = utc_now()
     save_json_file(DEFAULT_BENCHMARKS_FILE, payload)
+
+
+def load_scorecard_store() -> dict[str, Any]:
+    payload = load_json_file(DEFAULT_SCORECARDS_FILE, {})
+    if not isinstance(payload, dict):
+        payload = {}
+    if not isinstance(payload.get("providers"), dict):
+        payload["providers"] = {}
+    if not isinstance(payload.get("leaders"), dict):
+        payload["leaders"] = {}
+    payload.setdefault("version", "phase0c")
+    payload.setdefault("updated_at", "")
+    payload.setdefault("source_usage_file", str(DEFAULT_USAGE_LEDGER_FILE))
+    return payload
+
+
+def save_scorecard_store(payload: dict[str, Any]) -> None:
+    payload["updated_at"] = utc_now()
+    save_json_file(DEFAULT_SCORECARDS_FILE, payload)
 
 
 def health_entry_default(provider_id: str, provider_enabled: bool) -> dict[str, Any]:
@@ -752,6 +857,143 @@ def provider_in_cooldown(health_entry: dict[str, Any]) -> bool:
     return cooldown_until > datetime.now(timezone.utc)
 
 
+def latency_score_from_ms(latency_ms: float | int | None) -> float:
+    if not isinstance(latency_ms, (int, float)) or latency_ms <= 0:
+        return 0.6
+    return max(0.1, min(1.0, 1.0 / (1.0 + (float(latency_ms) / 4000.0))))
+
+
+def refresh_scorecards(usage_ledger_file: str = "") -> dict[str, Any]:
+    ledger_path = Path(usage_ledger_file or str(DEFAULT_USAGE_LEDGER_FILE))
+    provider_records: dict[str, dict[str, Any]] = {}
+    leaders: dict[str, dict[str, Any]] = {}
+
+    lines: deque[str] = deque(maxlen=SCORECARD_WINDOW)
+    if ledger_path.exists():
+        with ledger_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                stripped = line.strip()
+                if stripped:
+                    lines.append(stripped)
+
+    for raw_line in lines:
+        try:
+            event = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        provider_id = sanitize_provider_name(str(event.get("provider_id", "")))
+        task_class = normalize_task_class(str(event.get("task_class", "")))
+        if not provider_id or not task_class:
+            continue
+
+        provider_card = provider_records.setdefault(provider_id, {"tasks": {}, "aggregate": {}})
+        task_card = provider_card["tasks"].setdefault(
+            task_class,
+            {
+                "total": 0,
+                "ok": 0,
+                "error": 0,
+                "escalated": 0,
+                "latencies": [],
+                "costs": [],
+                "last_used_at": "",
+            },
+        )
+
+        task_card["total"] += 1
+        status = str(event.get("status", "")).strip().lower()
+        if status == "ok":
+            task_card["ok"] += 1
+        elif status == "escalated":
+            task_card["ok"] += 1
+            task_card["escalated"] += 1
+        else:
+            task_card["error"] += 1
+
+        latency_ms = event.get("latency_ms")
+        if isinstance(latency_ms, (int, float)) and latency_ms > 0:
+            task_card["latencies"].append(float(latency_ms))
+
+        estimated_cost = event.get("estimated_cost_usd")
+        if isinstance(estimated_cost, (int, float)) and estimated_cost >= 0:
+            task_card["costs"].append(float(estimated_cost))
+
+        logged_at = str(event.get("logged_at", ""))
+        if logged_at:
+            task_card["last_used_at"] = logged_at
+
+    for provider_id, provider_card in provider_records.items():
+        aggregates = {"total": 0, "ok": 0, "error": 0, "escalated": 0, "latencies": [], "costs": [], "last_used_at": ""}
+        for task_class, metrics in provider_card["tasks"].items():
+            total = int(metrics["total"])
+            ok = int(metrics["ok"])
+            escalated = int(metrics["escalated"])
+            avg_latency_ms = round(sum(metrics["latencies"]) / len(metrics["latencies"]), 2) if metrics["latencies"] else None
+            success_rate = round(ok / max(total, 1), 4)
+            escalation_rate = round(escalated / max(ok, 1), 4) if ok else 0.0
+            avg_cost_usd = round(sum(metrics["costs"]) / len(metrics["costs"]), 8) if metrics["costs"] else None
+            provider_card["tasks"][task_class] = {
+                "total": total,
+                "ok": ok,
+                "error": int(metrics["error"]),
+                "escalated": escalated,
+                "success_rate": success_rate,
+                "escalation_rate": escalation_rate,
+                "avg_latency_ms": avg_latency_ms,
+                "latency_score": round(latency_score_from_ms(avg_latency_ms), 4),
+                "avg_cost_usd": avg_cost_usd,
+                "last_used_at": metrics["last_used_at"],
+            }
+            aggregates["total"] += total
+            aggregates["ok"] += ok
+            aggregates["error"] += int(metrics["error"])
+            aggregates["escalated"] += escalated
+            if avg_latency_ms is not None:
+                aggregates["latencies"].append(avg_latency_ms)
+            if avg_cost_usd is not None:
+                aggregates["costs"].append(avg_cost_usd)
+            if metrics["last_used_at"]:
+                aggregates["last_used_at"] = max(aggregates["last_used_at"], metrics["last_used_at"])
+
+        aggregate_latency = round(sum(aggregates["latencies"]) / len(aggregates["latencies"]), 2) if aggregates["latencies"] else None
+        aggregate_cost = round(sum(aggregates["costs"]) / len(aggregates["costs"]), 8) if aggregates["costs"] else None
+        provider_card["aggregate"] = {
+            "total": aggregates["total"],
+            "ok": aggregates["ok"],
+            "error": aggregates["error"],
+            "escalated": aggregates["escalated"],
+            "success_rate": round(aggregates["ok"] / max(aggregates["total"], 1), 4),
+            "escalation_rate": round(aggregates["escalated"] / max(aggregates["ok"], 1), 4) if aggregates["ok"] else 0.0,
+            "avg_latency_ms": aggregate_latency,
+            "latency_score": round(latency_score_from_ms(aggregate_latency), 4),
+            "avg_cost_usd": aggregate_cost,
+            "last_used_at": aggregates["last_used_at"],
+        }
+
+    config = load_router_config()
+    config = {**config, "scorecard_store": {"providers": provider_records, "leaders": {}}}
+    for task_class in ("summarize", "extract", "compact", "reflect", "chat", "research_public"):
+        try:
+            ranking = choose_provider(task_class, task_class=task_class, privacy_class="public", _preloaded_config=config)
+        except Exception:
+            continue
+        ranked = ranking.get("ranked_providers", [])
+        leaders[task_class] = {
+            "primary": ranked[0]["id"] if ranked else "",
+            "backup": ranked[1]["id"] if len(ranked) > 1 else "",
+            "updated_at": utc_now(),
+        }
+
+    payload = {
+        "version": "phase0c",
+        "source_usage_file": str(ledger_path),
+        "providers": provider_records,
+        "leaders": leaders,
+    }
+    save_scorecard_store(payload)
+    return payload
+
+
 def benchmark_quality_for(provider_id: str, task_class: str, benchmark_store: dict[str, Any], trust_tier: str) -> float:
     provider_entry = benchmark_store.get("providers", {}).get(provider_id, {})
     profiles = provider_entry.get("profiles", {})
@@ -766,11 +1008,42 @@ def benchmark_quality_for(provider_id: str, task_class: str, benchmark_store: di
     return DEFAULT_BENCHMARK_QUALITY.get(trust_tier, 0.5)
 
 
+def task_fit_hint(provider: dict[str, Any], task_class: str) -> float:
+    interactive = bool(provider.get("interactive", True))
+    latency_tier = str(provider.get("latency_tier", "normal"))
+    strength_tier = str(provider.get("strength_tier", "standard"))
+    trust_tier = str(provider.get("trust_tier", "trusted_external"))
+
+    if trust_tier == "frontier":
+        return 0.95
+    if task_class in FAST_LOOP_TASKS:
+        score = 0.55
+        if interactive:
+            score += 0.20
+        if latency_tier == "normal":
+            score += 0.15
+        elif latency_tier == "slow":
+            score -= 0.10
+        if strength_tier in {"strong", "powerful"}:
+            score += 0.05
+        return max(0.1, min(1.0, score))
+    if task_class in SLOW_POWERFUL_TASKS:
+        score = 0.45
+        if strength_tier == "powerful":
+            score += 0.28
+        elif strength_tier == "strong":
+            score += 0.20
+        if latency_tier == "slow":
+            score += 0.12
+        elif latency_tier == "normal":
+            score += 0.06
+        return max(0.1, min(1.0, score))
+    return 0.6
+
+
 def latency_score_for(health_entry: dict[str, Any]) -> float:
     latency_ms = health_entry.get("last_latency_ms")
-    if not isinstance(latency_ms, (int, float)) or latency_ms <= 0:
-        return 0.6
-    return max(0.1, min(1.0, 1.0 / (1.0 + (float(latency_ms) / 4000.0))))
+    return latency_score_from_ms(latency_ms)
 
 
 def cost_score_for(provider: dict[str, Any]) -> float:
@@ -787,6 +1060,24 @@ def success_rate_for(health_entry: dict[str, Any], trust_tier: str) -> float:
     if isinstance(success_rate, (int, float)) and success_rate > 0:
         return max(0.0, min(1.0, float(success_rate)))
     return DEFAULT_SUCCESS_RATE.get(trust_tier, 0.75)
+
+
+def task_metrics_for(provider_id: str, task_class: str, scorecard_store: dict[str, Any]) -> dict[str, Any]:
+    provider_card = scorecard_store.get("providers", {}).get(provider_id, {})
+    task_metrics = provider_card.get("tasks", {}).get(task_class)
+    if isinstance(task_metrics, dict):
+        return task_metrics
+    aggregate = provider_card.get("aggregate")
+    if isinstance(aggregate, dict):
+        return aggregate
+    return {}
+
+
+def benchmark_quality_for_task(provider: dict[str, Any], task_class: str, benchmark_store: dict[str, Any]) -> float:
+    trust_tier = provider.get("trust_tier", "trusted_external")
+    base_quality = benchmark_quality_for(provider["id"], task_class, benchmark_store, trust_tier)
+    fit_hint = task_fit_hint(provider, task_class)
+    return round(max(0.0, min(1.0, (base_quality * 0.7) + (fit_hint * 0.3))), 4)
 
 
 def provider_should_be_eligible(provider: dict[str, Any], task_class: str, privacy_class: str) -> tuple[bool, str]:
@@ -841,6 +1132,12 @@ def provider_public_view(provider: dict[str, Any], *, include_score_components: 
         view["api_mode"] = provider["api_mode"]
     if provider.get("benchmark_profiles"):
         view["benchmark_profiles"] = provider["benchmark_profiles"]
+    if isinstance(provider.get("scorecard"), dict):
+        view["scorecard"] = provider["scorecard"]
+    if provider.get("degraded_from_task_class"):
+        view["degraded_from_task_class"] = provider["degraded_from_task_class"]
+    if provider.get("fallback_scored_as"):
+        view["fallback_scored_as"] = provider["fallback_scored_as"]
     if include_score_components and provider.get("score_components"):
         view["score"] = provider.get("score")
         view["score_components"] = provider.get("score_components")
@@ -853,9 +1150,12 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
     registry_payload = ensure_registry_synced()
     health_store = load_health_store()
     benchmark_store = load_benchmark_store()
+    scorecard_store = load_scorecard_store()
     default_privacy = normalize_privacy_class(env_get(raw, "FREEWILLER_ROUTER_DEFAULT_PRIVACY", default="internal")) or "internal"
     allow_public_external = env_bool(raw, "FREEWILLER_ROUTER_ALLOW_PUBLIC_EXTERNAL", True)
     allow_internal_cheap = env_bool(raw, "FREEWILLER_ROUTER_ALLOW_INTERNAL_CHEAP", True)
+    allow_frontier_exhausted_fallback = env_bool(raw, "FREEWILLER_FRONTIER_EXHAUSTED_FALLBACK", True)
+    frontier_exhausted = env_bool(raw, "FREEWILLER_FRONTIER_EXHAUSTED", False)
     usage_ledger_file = env_get(raw, "FREEWILLER_USAGE_LEDGER_FILE", default=str(DEFAULT_USAGE_LEDGER_FILE))
 
     providers: dict[str, Any] = {}
@@ -882,6 +1182,7 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
             health_entry["state_reason"] = "provider disabled in registry"
         entry["health"] = health_entry
         entry["configured"] = configured
+        entry["scorecard"] = scorecard_store.get("providers", {}).get(entry["id"], {})
         providers[entry["id"]] = entry
 
     return {
@@ -893,10 +1194,14 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
         "registry_file": str(PRIMARY_REGISTRY_FILE),
         "health_file": str(DEFAULT_HEALTH_FILE),
         "benchmarks_file": str(DEFAULT_BENCHMARKS_FILE),
+        "scorecards_file": str(DEFAULT_SCORECARDS_FILE),
         "warnings": warnings,
         "providers": providers,
         "health_store": health_store,
         "benchmark_store": benchmark_store,
+        "scorecard_store": scorecard_store,
+        "allow_frontier_exhausted_fallback": allow_frontier_exhausted_fallback,
+        "frontier_exhausted": frontier_exhausted,
     }
 
 
@@ -917,39 +1222,86 @@ def summarize_rankings(config: dict[str, Any]) -> dict[str, list[str]]:
     return summary
 
 
+def summarize_task_leaders(config: dict[str, Any]) -> dict[str, Any]:
+    leaders = config.get("scorecard_store", {}).get("leaders", {})
+    return {
+        task_class: {
+            "primary": info.get("primary", ""),
+            "backup": info.get("backup", ""),
+            "updated_at": info.get("updated_at", ""),
+        }
+        for task_class, info in sorted(leaders.items())
+        if isinstance(info, dict)
+    }
+
+
 def public_policy_view(config: dict[str, Any]) -> dict[str, Any]:
     return {
         "policy_version": config["policy_version"],
         "default_privacy": config["default_privacy"],
         "allow_public_external": config["allow_public_external"],
         "allow_internal_cheap": config["allow_internal_cheap"],
+        "allow_frontier_exhausted_fallback": config["allow_frontier_exhausted_fallback"],
+        "frontier_exhausted": config["frontier_exhausted"],
         "usage_ledger_file": config["usage_ledger_file"],
         "registry_file": config["registry_file"],
         "health_file": config["health_file"],
         "benchmarks_file": config["benchmarks_file"],
+        "scorecards_file": config["scorecards_file"],
         "warnings": config["warnings"],
         "ranking_summary": summarize_rankings(config),
+        "task_leaders": summarize_task_leaders(config),
         "providers": [provider_public_view(provider) for provider in config["providers"].values()],
     }
 
 
-def build_score(provider: dict[str, Any], task_class: str, benchmark_store: dict[str, Any]) -> tuple[float, dict[str, float]]:
+def build_score(
+    provider: dict[str, Any],
+    task_class: str,
+    benchmark_store: dict[str, Any],
+    scorecard_store: dict[str, Any],
+) -> tuple[float, dict[str, float]]:
     trust_tier = provider.get("trust_tier", "trusted_external")
-    benchmark_quality = benchmark_quality_for(provider["id"], task_class, benchmark_store, trust_tier)
-    recent_success_rate = success_rate_for(provider.get("health", {}), trust_tier)
-    latency_score = latency_score_for(provider.get("health", {}))
+    task_metrics = task_metrics_for(provider["id"], task_class, scorecard_store)
+    benchmark_quality = benchmark_quality_for_task(provider, task_class, benchmark_store)
+    recent_success_rate = task_metrics.get("success_rate")
+    if not isinstance(recent_success_rate, (int, float)):
+        recent_success_rate = success_rate_for(provider.get("health", {}), trust_tier)
+    latency_score = task_metrics.get("latency_score")
+    if not isinstance(latency_score, (int, float)):
+        latency_score = latency_score_for(provider.get("health", {}))
     cost_score = cost_score_for(provider)
     trust_score = TRUST_SCORE_MAP.get(trust_tier, 0.5)
 
     components = {
         "benchmark_quality": round(benchmark_quality, 4),
-        "recent_success_rate": round(recent_success_rate, 4),
-        "latency_score": round(latency_score, 4),
+        "recent_success_rate": round(float(recent_success_rate), 4),
+        "latency_score": round(float(latency_score), 4),
         "cost_score": round(cost_score, 4),
         "trust_score": round(trust_score, 4),
     }
     score = sum(components[key] * SCORE_WEIGHTS[key] for key in SCORE_WEIGHTS)
     return round(score, 4), components
+
+
+def frontier_available(provider: dict[str, Any] | None, config: dict[str, Any]) -> bool:
+    if config.get("frontier_exhausted", False):
+        return False
+    if not provider or not provider.get("configured", False):
+        return False
+    eligible, _ = provider_should_be_eligible(provider, "chat", "internal")
+    return eligible
+
+
+def selection_confidence_for(ranked_resolved: list[dict[str, Any]]) -> tuple[float, float]:
+    if not ranked_resolved:
+        return 0.0, 0.0
+    top = float(ranked_resolved[0].get("score", 0.0))
+    next_score = float(ranked_resolved[1].get("score", 0.0)) if len(ranked_resolved) > 1 else max(0.0, top - 0.20)
+    gap = max(0.0, top - next_score)
+    gap_score = min(1.0, gap / 0.12)
+    confidence = max(0.0, min(1.0, (top * 0.65) + (gap_score * 0.35)))
+    return round(confidence, 4), round(gap, 4)
 
 
 def choose_provider(
@@ -964,6 +1316,8 @@ def choose_provider(
     providers = config["providers"]
     resolved_task_class = normalize_task_class(task_class) or infer_task_class(task)
     resolved_privacy_class = normalize_privacy_class(privacy_class) or infer_privacy_class(task, config["default_privacy"])
+    frontier_provider = providers.get("frontier_gateway")
+    frontier_is_available = frontier_available(frontier_provider, config)
 
     if provider_override:
         override_id = sanitize_provider_name(provider_override)
@@ -973,7 +1327,7 @@ def choose_provider(
         eligible, reason = provider_should_be_eligible(selected, resolved_task_class, resolved_privacy_class)
         if not eligible:
             raise RuntimeError(f"Provider {override_id} is not eligible: {reason}")
-        score, components = build_score(selected, resolved_task_class, config["benchmark_store"])
+        score, components = build_score(selected, resolved_task_class, config["benchmark_store"], config["scorecard_store"])
         selected = {**selected, "score": score, "score_components": components}
         ranked_providers = [provider_public_view(selected, include_score_components=True)]
         reason_text = "explicit provider override"
@@ -984,37 +1338,19 @@ def choose_provider(
             "selected_provider": ranked_providers[0],
             "ranked_providers": ranked_providers,
             "reason": reason_text,
-            "usage_ledger_file": config["usage_ledger_file"],
-            "providers": [provider_public_view(provider) for provider in providers.values()],
-            "warnings": config["warnings"],
-        }
-
-    if resolved_privacy_class in {"private", "secret"} or resolved_task_class in FRONTIER_ONLY_TASKS:
-        frontier = providers.get("frontier_gateway")
-        if not frontier or not frontier.get("configured", False):
-            raise RuntimeError("Frontier gateway is required for private/secret/frontier-only tasks")
-        score, components = build_score(frontier, resolved_task_class, config["benchmark_store"])
-        selected = {**frontier, "score": score, "score_components": components}
-        reason_text = (
-            f"{resolved_privacy_class} data stays on the frontier lane"
-            if resolved_privacy_class in {"private", "secret"}
-            else f"{resolved_task_class} tasks stay on the frontier lane"
-        )
-        return {
-            "policy_version": config["policy_version"],
-            "task_class": resolved_task_class,
-            "privacy_class": resolved_privacy_class,
-            "selected_provider": provider_public_view(selected, include_score_components=True),
-            "ranked_providers": [provider_public_view(selected, include_score_components=True)],
-            "reason": reason_text,
+            "selection_confidence": 1.0,
+            "score_gap_to_next": 1.0,
+            "frontier_available": frontier_is_available,
+            "frontier_exhausted_fallback": False,
+            "escalate_on_low_confidence": False,
             "usage_ledger_file": config["usage_ledger_file"],
             "providers": [provider_public_view(provider) for provider in providers.values()],
             "warnings": config["warnings"],
         }
 
     non_frontier_candidates: list[dict[str, Any]] = []
+    frontier_exhausted_candidates: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
-    frontier_provider = providers.get("frontier_gateway")
 
     for provider in providers.values():
         if provider["id"] == "frontier_gateway":
@@ -1030,37 +1366,106 @@ def choose_provider(
 
         eligible, reason = provider_should_be_eligible(provider, resolved_task_class, resolved_privacy_class)
         if not eligible:
+            if (
+                resolved_task_class in FRONTIER_ONLY_TASKS
+                and config["allow_frontier_exhausted_fallback"]
+                and provider.get("enabled", True)
+                and provider.get("configured", False)
+                and resolved_privacy_class in provider.get("allowed_privacy", [])
+            ):
+                health_state = provider.get("health", {}).get("state", "healthy")
+                if health_state not in {"disabled", "auth_error"} and not provider_in_cooldown(provider.get("health", {})):
+                    fallback_task_class = "reflect" if resolved_task_class in {"architecture", "coding", "ops"} else resolved_task_class
+                    score, components = build_score(provider, fallback_task_class, config["benchmark_store"], config["scorecard_store"])
+                    frontier_exhausted_candidates.append(
+                        {
+                            **provider,
+                            "score": score,
+                            "score_components": components,
+                            "degraded_from_task_class": resolved_task_class,
+                            "fallback_scored_as": fallback_task_class,
+                        }
+                    )
             skipped.append({"id": provider["id"], "reason": reason})
             continue
 
-        score, components = build_score(provider, resolved_task_class, config["benchmark_store"])
+        score, components = build_score(provider, resolved_task_class, config["benchmark_store"], config["scorecard_store"])
         non_frontier_candidates.append({**provider, "score": score, "score_components": components})
 
     non_frontier_candidates.sort(key=lambda item: (item["score"], item["id"]), reverse=True)
-    ranked_resolved: list[dict[str, Any]] = list(non_frontier_candidates)
+    ranked_resolved: list[dict[str, Any]] = []
 
-    frontier_added_as_fallback = False
+    if resolved_privacy_class in {"private", "secret"}:
+        if not frontier_provider or not frontier_provider.get("configured", False):
+            raise RuntimeError("Frontier gateway is required for private/secret tasks")
+        if not frontier_is_available:
+            raise RuntimeError("Frontier gateway is unavailable for private/secret tasks")
+        frontier_score, frontier_components = build_score(frontier_provider, resolved_task_class, config["benchmark_store"], config["scorecard_store"])
+        ranked_resolved = [{**frontier_provider, "score": frontier_score, "score_components": frontier_components}]
+        reason_text = f"{resolved_privacy_class} data stays on the frontier lane"
+        return {
+            "policy_version": config["policy_version"],
+            "task_class": resolved_task_class,
+            "privacy_class": resolved_privacy_class,
+            "selected_provider": provider_public_view(ranked_resolved[0], include_score_components=True),
+            "ranked_providers": [provider_public_view(item, include_score_components=True) for item in ranked_resolved],
+            "reason": reason_text,
+            "selection_confidence": 1.0,
+            "score_gap_to_next": 1.0,
+            "frontier_available": frontier_is_available,
+            "frontier_exhausted_fallback": False,
+            "escalate_on_low_confidence": False,
+            "usage_ledger_file": config["usage_ledger_file"],
+            "providers": [provider_public_view(provider) for provider in providers.values()],
+            "warnings": config["warnings"],
+            "skipped_providers": skipped,
+        }
+
+    frontier_candidate: dict[str, Any] | None = None
     if frontier_provider and frontier_provider.get("configured", False):
-        eligible_frontier, _ = provider_should_be_eligible(frontier_provider, resolved_task_class, resolved_privacy_class)
-        if eligible_frontier:
-            frontier_score, frontier_components = build_score(frontier_provider, resolved_task_class, config["benchmark_store"])
-            frontier_candidate = {**frontier_provider, "score": frontier_score, "score_components": frontier_components}
-            if ranked_resolved:
-                ranked_resolved.append(frontier_candidate)
-                frontier_added_as_fallback = True
-            else:
-                ranked_resolved = [frontier_candidate]
+        frontier_score, frontier_components = build_score(frontier_provider, resolved_task_class, config["benchmark_store"], config["scorecard_store"])
+        frontier_candidate = {**frontier_provider, "score": frontier_score, "score_components": frontier_components}
+
+    if resolved_task_class in FRONTIER_ONLY_TASKS:
+        if frontier_is_available and frontier_candidate:
+            ranked_resolved = [frontier_candidate]
+            if config["allow_frontier_exhausted_fallback"] and non_frontier_candidates:
+                ranked_resolved.extend(non_frontier_candidates)
+            reason_text = f"{resolved_task_class} tasks prefer the frontier lane"
+        elif config["allow_frontier_exhausted_fallback"] and frontier_exhausted_candidates:
+            frontier_exhausted_candidates.sort(key=lambda item: (item["score"], item["id"]), reverse=True)
+            ranked_resolved = list(frontier_exhausted_candidates)
+            reason_text = f"{resolved_task_class} tasks degraded to non-frontier fallback because the frontier lane is unavailable"
+        else:
+            raise RuntimeError(f"Frontier gateway is unavailable for {resolved_task_class} tasks")
+    else:
+        ranked_resolved = list(non_frontier_candidates)
+        if frontier_candidate and frontier_is_available:
+            ranked_resolved.append(frontier_candidate)
 
     if not ranked_resolved:
         raise RuntimeError("No configured provider is eligible for this task")
 
     selected_provider = ranked_resolved[0]
-    if frontier_added_as_fallback:
-        reason_text = "ranked non-frontier providers first with frontier fallback"
-    elif selected_provider["id"] == "frontier_gateway":
-        reason_text = "defaulting to the frontier lane"
-    else:
-        reason_text = "ranked eligible non-frontier providers by quality, reliability, latency, cost, and trust"
+    selection_confidence, score_gap_to_next = selection_confidence_for(ranked_resolved)
+    frontier_exhausted_fallback = (
+        resolved_task_class in FRONTIER_ONLY_TASKS
+        and selected_provider["id"] != "frontier_gateway"
+    )
+    escalate_on_low_confidence = (
+        selected_provider["id"] != "frontier_gateway"
+        and frontier_is_available
+        and resolved_task_class in FRONTIER_REVIEW_TASKS
+        and (selection_confidence < FRONTIER_REVIEW_CONFIDENCE_THRESHOLD or score_gap_to_next < SMALL_GAP_THRESHOLD)
+    )
+
+    if resolved_task_class not in FRONTIER_ONLY_TASKS:
+        if selected_provider["id"] == "frontier_gateway":
+            reason_text = "defaulting to the frontier lane"
+        elif frontier_is_available:
+            reason_text = "ranked eligible non-frontier providers first with frontier fallback"
+        else:
+            reason_text = "ranked eligible non-frontier providers while the frontier lane is unavailable"
 
     return {
         "policy_version": config["policy_version"],
@@ -1069,6 +1474,11 @@ def choose_provider(
         "selected_provider": provider_public_view(selected_provider, include_score_components=True),
         "ranked_providers": [provider_public_view(item, include_score_components=True) for item in ranked_resolved],
         "reason": reason_text,
+        "selection_confidence": selection_confidence,
+        "score_gap_to_next": score_gap_to_next,
+        "frontier_available": frontier_is_available,
+        "frontier_exhausted_fallback": frontier_exhausted_fallback,
+        "escalate_on_low_confidence": escalate_on_low_confidence,
         "usage_ledger_file": config["usage_ledger_file"],
         "providers": [provider_public_view(provider) for provider in providers.values()],
         "warnings": config["warnings"],
@@ -1111,6 +1521,7 @@ def append_usage_ledger(entry: dict[str, Any]) -> str:
     payload = {"logged_at": utc_now(), **entry}
     with ledger_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    refresh_scorecards(str(ledger_path))
     return str(ledger_path)
 
 
@@ -1464,6 +1875,20 @@ def health_public_view(config: dict[str, Any] | None = None) -> dict[str, Any]:
     }
 
 
+def scorecards_public_view(refresh: bool = False) -> dict[str, Any]:
+    config = load_router_config()
+    if refresh:
+        refresh_scorecards(config["usage_ledger_file"])
+        config = load_router_config()
+    payload = config.get("scorecard_store", {})
+    return {
+        "updated_at": payload.get("updated_at", ""),
+        "scorecards_file": config["scorecards_file"],
+        "leaders": payload.get("leaders", {}),
+        "providers": payload.get("providers", {}),
+    }
+
+
 def sync_command(_args: argparse.Namespace) -> int:
     payload = sync_registry(write=True)
     print(json.dumps(payload, indent=2, ensure_ascii=True))
@@ -1526,6 +1951,11 @@ def heartbeat_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def scorecards_command(args: argparse.Namespace) -> int:
+    print(json.dumps(scorecards_public_view(refresh=args.refresh), indent=2, ensure_ascii=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Freewiller provider registry, routing, health, and benchmarks.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1567,6 +1997,10 @@ def build_parser() -> argparse.ArgumentParser:
     heartbeat_parser = subparsers.add_parser("heartbeat")
     heartbeat_parser.add_argument("--provider", default="")
     heartbeat_parser.set_defaults(func=heartbeat_command)
+
+    scorecards_parser = subparsers.add_parser("scorecards")
+    scorecards_parser.add_argument("--refresh", action="store_true")
+    scorecards_parser.set_defaults(func=scorecards_command)
 
     return parser
 
