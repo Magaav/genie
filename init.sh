@@ -11,7 +11,7 @@
 #    - DEPLOY_KEY_PATH: existing private key file path on the instance
 #
 # Example:
-#   sudo bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
+#   sudo bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/genie/master/init.sh | bash'
 #
 # After completion:
 # - open a fresh SSH/VS Code shell, or run `newgrp docker`, before using Docker
@@ -31,7 +31,7 @@
 
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-${REPO_SSH_URL:-https://github.com/Magaav/freewiller.git}}"
+REPO_URL="${REPO_URL:-${REPO_SSH_URL:-https://github.com/Magaav/genie.git}}"
 REPO_DIR="${REPO_DIR:-/local}"
 BOOTSTRAP_USER="${BOOTSTRAP_USER:-${SUDO_USER:-ubuntu}}"
 BOOTSTRAP_HOME="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"

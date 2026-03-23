@@ -11,7 +11,7 @@ It is designed to respawn onto a fresh Ubuntu VM, recover its local state, and k
 
 Current runtime paths:
 
-- repo slug: `Magaav/freewiller`
+- repo slug: `Magaav/genie`
 - state: `/local/state/genie`
 - logs: `/local/log/genie`
 
@@ -167,21 +167,21 @@ Tracked templates and benchmark corpus live in:
 On a fresh Ubuntu VM:
 
 ```bash
-sudo bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
+sudo bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/genie/master/init.sh | bash'
 ```
 
 To restore state from an existing backup during spawn:
 
 ```bash
 sudo RESTORE_BACKUP_URL='https://example.com/genie-daily-2026-03-23.tar.gz' \
-  bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
+  bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/genie/master/init.sh | bash'
 ```
 
 Or from a file already on the VM:
 
 ```bash
 sudo RESTORE_BACKUP_PATH=/tmp/genie-daily-2026-03-23.tar.gz \
-  bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/freewiller/master/init.sh | bash'
+  bash -lc 'mkdir -p /local && curl -fsSL https://raw.githubusercontent.com/Magaav/genie/master/init.sh | bash'
 ```
 
 ## What `init.sh` Does
@@ -389,8 +389,6 @@ Untrusted attempts to rewrite identity or policy are journaled for audit but blo
 
 The runtime identity, service names, state path, and native architecture are now `Genie`.
 
-The remaining compatibility holdout is the GitHub repo slug:
+The GitHub repo slug is now aligned with the runtime identity:
 
-- `Magaav/freewiller`
-
-That can be renamed separately later without affecting the live node layout.
+- `Magaav/genie`
