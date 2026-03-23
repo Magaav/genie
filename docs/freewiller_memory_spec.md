@@ -2,6 +2,10 @@
 
 This document defines the target memory architecture for Freewiller.
 
+The broader node strategy and implementation order live in:
+
+- [`freewiller_roadmap.md`](freewiller_roadmap.md)
+
 It is not just a storage design. It is the continuity model for a bootstrapable, persistent, local-first agent that must survive respawns, keep identity, revise mistaken beliefs, and serve multiple endpoints without leaking context across them.
 
 The current implementation in [`bash/local_memory.py`](/local/bash/local_memory.py) is the seed. This spec defines the next shape.

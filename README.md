@@ -54,6 +54,10 @@ The target next-stage memory architecture is specified in:
 
 - [`docs/freewiller_memory_spec.md`](docs/freewiller_memory_spec.md)
 
+The operating roadmap for how Freewiller should become more useful, reliable, and expansive over time is:
+
+- [`docs/freewiller_roadmap.md`](docs/freewiller_roadmap.md)
+
 ## Requirements
 
 - a brand new Ubuntu VM
