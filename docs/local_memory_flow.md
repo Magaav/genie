@@ -2,6 +2,12 @@
 
 Freewiller uses a guarded local utility layer before remote escalation.
 
+The target next-stage architecture is specified in:
+
+- [`freewiller_memory_spec.md`](freewiller_memory_spec.md)
+
+This file describes the current flow and runtime shape. The spec document describes the target AGI-grade memory model we are growing toward.
+
 ## Deployment Shape
 
 - host bootstrap: `init.sh`

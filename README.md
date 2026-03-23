@@ -50,6 +50,10 @@ Retrieval uses:
 - normalized vector similarity
 - FTS5 lexical bonus inside SQLite
 
+The target next-stage memory architecture is specified in:
+
+- [`docs/freewiller_memory_spec.md`](docs/freewiller_memory_spec.md)
+
 ## Requirements
 
 - a brand new Ubuntu VM
