@@ -509,6 +509,7 @@ def dispatch_to_openai_compatible(
         raise RuntimeError(f"Provider {provider.get('id', 'unknown')} is not configured")
 
     package_content = Path(package_path).read_text(encoding="utf-8")
+    request_timeout_seconds = int(provider.get("request_timeout_seconds", 90))
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -526,7 +527,7 @@ def dispatch_to_openai_compatible(
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=90) as response:
+            with urllib.request.urlopen(req, timeout=request_timeout_seconds) as response:
                 response_json = json.loads(response.read().decode("utf-8"))
             text_output = extract_text_fn(response_json)
             break

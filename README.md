@@ -263,6 +263,7 @@ Example NVIDIA cheap-lane config in `/local/.env`:
 ```bash
 NVIDIA_API_KEY='your_nvidia_key'
 FREEWILLER_NVIDIA_MODEL='moonshotai/kimi-k2.5'
+FREEWILLER_NVIDIA_REQUEST_TIMEOUT_SECONDS='240'
 ```
 
 Kimi K2.5 is wired in instant mode by default so it does not waste tokens on thinking traces. After updating `.env`, apply it with:

@@ -360,6 +360,7 @@ def default_registry_entry_frontier(raw: dict[str, str]) -> dict[str, Any]:
         "allowed_privacy": ["public", "internal", "private", "secret"],
         "allowed_tasks": sorted(TASK_CLASSES),
         "max_output_tokens": env_int(raw, "FREEWILLER_MAX_OUTPUT_TOKENS", env_int(raw, "OPENCLAW_MAX_OUTPUT_TOKENS", 2048)),
+        "request_timeout_seconds": env_int(raw, "FREEWILLER_FRONTIER_REQUEST_TIMEOUT_SECONDS", env_int(raw, "FRONTIER_REQUEST_TIMEOUT_SECONDS", 90)),
         "cost_input_per_million": env_float(raw, "FREEWILLER_FRONTIER_INPUT_COST_PER_MILLION"),
         "cost_output_per_million": env_float(raw, "FREEWILLER_FRONTIER_OUTPUT_COST_PER_MILLION"),
         "benchmark_profiles": sorted(BENCHMARK_PROFILES),
@@ -400,6 +401,7 @@ def default_registry_entry_nvidia(raw: dict[str, str]) -> dict[str, Any] | None:
         "allowed_privacy": ["public", "internal"],
         "allowed_tasks": sorted(CHEAP_ELIGIBLE_TASKS),
         "max_output_tokens": env_int(raw, "FREEWILLER_NVIDIA_MAX_OUTPUT_TOKENS", env_int(raw, "NVIDIA_MAX_OUTPUT_TOKENS", 1024)),
+        "request_timeout_seconds": env_int(raw, "FREEWILLER_NVIDIA_REQUEST_TIMEOUT_SECONDS", env_int(raw, "NVIDIA_REQUEST_TIMEOUT_SECONDS", 240)),
         "cost_input_per_million": env_float(raw, "FREEWILLER_NVIDIA_INPUT_COST_PER_MILLION"),
         "cost_output_per_million": env_float(raw, "FREEWILLER_NVIDIA_OUTPUT_COST_PER_MILLION"),
         "benchmark_profiles": sorted(BENCHMARK_PROFILES),
@@ -426,6 +428,7 @@ def default_registry_entry_openrouter(raw: dict[str, str]) -> dict[str, Any] | N
         "allowed_privacy": ["public", "internal"],
         "allowed_tasks": sorted(CHEAP_ELIGIBLE_TASKS),
         "max_output_tokens": env_int(raw, "FREEWILLER_OPENROUTER_MAX_OUTPUT_TOKENS", env_int(raw, "OPENROUTER_MAX_OUTPUT_TOKENS", 1024)),
+        "request_timeout_seconds": env_int(raw, "FREEWILLER_OPENROUTER_REQUEST_TIMEOUT_SECONDS", env_int(raw, "OPENROUTER_REQUEST_TIMEOUT_SECONDS", 90)),
         "cost_input_per_million": env_float(raw, "FREEWILLER_OPENROUTER_INPUT_COST_PER_MILLION"),
         "cost_output_per_million": env_float(raw, "FREEWILLER_OPENROUTER_OUTPUT_COST_PER_MILLION"),
         "benchmark_profiles": sorted(BENCHMARK_PROFILES),
@@ -455,6 +458,7 @@ def default_registry_entry_legacy(raw: dict[str, str], *, public_only: bool) -> 
         "allowed_privacy": ["public"] if public_only else ["public", "internal"],
         "allowed_tasks": sorted(PUBLIC_ELIGIBLE_TASKS if public_only else CHEAP_ELIGIBLE_TASKS),
         "max_output_tokens": env_int(raw, f"{prefix}_MAX_OUTPUT_TOKENS", 1024),
+        "request_timeout_seconds": env_int(raw, f"{prefix}_REQUEST_TIMEOUT_SECONDS", 90),
         "cost_input_per_million": env_float(raw, f"{prefix}_INPUT_COST_PER_MILLION"),
         "cost_output_per_million": env_float(raw, f"{prefix}_OUTPUT_COST_PER_MILLION"),
         "benchmark_profiles": sorted(BENCHMARK_PROFILES),
@@ -494,6 +498,7 @@ def normalize_provider_entry(raw_entry: dict[str, Any]) -> dict[str, Any]:
     allowed_privacy = normalize_privacy_list(entry.get("allowed_privacy"), ["public", "internal"])
     allowed_tasks = normalize_task_list(entry.get("allowed_tasks"), sorted(CHEAP_ELIGIBLE_TASKS))
     max_output_tokens = int(entry.get("max_output_tokens", 1024))
+    request_timeout_seconds = int(entry.get("request_timeout_seconds", 90))
     api_mode = str(entry.get("api_mode", "chat")).strip().lower() or "chat"
     extra_body = entry.get("extra_body")
     if not isinstance(extra_body, dict):
@@ -514,6 +519,7 @@ def normalize_provider_entry(raw_entry: dict[str, Any]) -> dict[str, Any]:
         "allowed_privacy": allowed_privacy,
         "allowed_tasks": allowed_tasks,
         "max_output_tokens": max_output_tokens,
+        "request_timeout_seconds": request_timeout_seconds,
         "cost_input_per_million": entry.get("cost_input_per_million"),
         "cost_output_per_million": entry.get("cost_output_per_million"),
         "benchmark_profiles": normalize_profile_list(entry.get("benchmark_profiles"), allowed_tasks),
@@ -534,11 +540,8 @@ def merge_registry_entries(existing_entries: list[dict[str, Any]], auto_entries:
         auto_entry = auto_index.get(normalized["id"])
         if auto_entry:
             combined = dict(auto_entry)
-            for key, value in normalized.items():
-                if value not in ("", [], {}, None):
-                    combined[key] = value
-                elif key in {"enabled"}:
-                    combined[key] = value
+            if "enabled" in normalized:
+                combined["enabled"] = normalized["enabled"]
             merged[normalized["id"]] = normalize_provider_entry(combined)
         else:
             if normalized["id"] in auto_managed_ids:
@@ -773,6 +776,7 @@ def provider_public_view(provider: dict[str, Any], *, include_score_components: 
         "allowed_privacy": provider.get("allowed_privacy", []),
         "allowed_tasks": provider.get("allowed_tasks", []),
         "max_output_tokens": provider.get("max_output_tokens"),
+        "request_timeout_seconds": provider.get("request_timeout_seconds"),
         "health": {
             "state": provider.get("health", {}).get("state", "healthy"),
             "state_reason": provider.get("health", {}).get("state_reason", ""),

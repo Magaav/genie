@@ -16,6 +16,7 @@
       "allowed_privacy": ["public", "internal", "private", "secret"],
       "allowed_tasks": ["architecture", "chat", "classify", "coding", "compact", "extract", "ops", "reflect", "research_public", "summarize"],
       "max_output_tokens": 2048,
+      "request_timeout_seconds": 90,
       "cost_input_per_million": null,
       "cost_output_per_million": null,
       "benchmark_profiles": ["summarize", "extract", "compact", "reflect", "research_public", "chat"]
@@ -39,6 +40,7 @@
       "allowed_privacy": ["public", "internal"],
       "allowed_tasks": ["chat", "classify", "compact", "extract", "reflect", "research_public", "summarize"],
       "max_output_tokens": 1024,
+      "request_timeout_seconds": 240,
       "cost_input_per_million": null,
       "cost_output_per_million": null,
       "benchmark_profiles": ["summarize", "extract", "compact", "reflect", "research_public", "chat"]
@@ -58,6 +60,7 @@
       "allowed_privacy": ["public", "internal"],
       "allowed_tasks": ["chat", "classify", "compact", "extract", "reflect", "research_public", "summarize"],
       "max_output_tokens": 1024,
+      "request_timeout_seconds": 90,
       "cost_input_per_million": null,
       "cost_output_per_million": null,
       "benchmark_profiles": ["summarize", "extract", "compact", "reflect", "research_public", "chat"]
