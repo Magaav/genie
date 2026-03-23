@@ -13,6 +13,8 @@ HOURLY_PREFIX="freewiller-hourly"
 DAILY_PREFIX="freewiller-daily"
 KEEP_HOURLY="${KEEP_HOURLY:-3}"
 KEEP_DAILY="${KEEP_DAILY:-1}"
+PROVIDER_ROUTING_ENV_FILE="${PROVIDER_ROUTING_ENV_FILE:-$STATE_DIR/provider-routing.env}"
+USAGE_LEDGER_FILE="${FREEWILLER_USAGE_LEDGER_FILE:-$STATE_DIR/telemetry/provider-usage.jsonl}"
 LOCAL_MEMORY_PY="$(realpath "$ROOT_DIR/bash/local_memory.py")"
 REPO_ENV_FILE="${REPO_ENV_FILE:-$ROOT_DIR/.env}"
 
@@ -59,8 +61,17 @@ build_snapshot_dir() {
     cp "$STATE_DIR/freewiller-gateway.env" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/freewiller-gateway.env"
   fi
 
+  if [ -f "$PROVIDER_ROUTING_ENV_FILE" ]; then
+    cp "$PROVIDER_ROUTING_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/provider-routing.env"
+  fi
+
   if [ -f "$REPO_ENV_FILE" ]; then
     cp "$REPO_ENV_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/repo.env"
+  fi
+
+  if [ -f "$USAGE_LEDGER_FILE" ]; then
+    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/telemetry"
+    cp "$USAGE_LEDGER_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/telemetry/provider-usage.jsonl"
   fi
 
   if [ -f "$STATE_DIR/memory/journal.jsonl" ]; then
@@ -76,8 +87,10 @@ build_snapshot_dir() {
   "created_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
   "state_dir": "$STATE_DIR",
   "repo_env_present": $([ -f "$REPO_ENV_FILE" ] && echo true || echo false),
+  "provider_routing_present": $([ -f "$PROVIDER_ROUTING_ENV_FILE" ] && echo true || echo false),
   "memory_entries": $(wc -l < "$STATE_DIR/memory/entries.jsonl" 2>/dev/null || echo 0),
   "journal_events": $(wc -l < "$STATE_DIR/memory/journal.jsonl" 2>/dev/null || echo 0),
+  "provider_usage_events": $(wc -l < "$USAGE_LEDGER_FILE" 2>/dev/null || echo 0),
   "memory_format": "hybrid-sqlite-compact-jsonl",
   "worker_model": "$(grep -E '^QWEN_MODEL=' "$STATE_DIR/local-llm.env" 2>/dev/null | cut -d= -f2- || echo unknown)",
   "embed_model": "$(grep -E '^EMBED_MODEL=' "$STATE_DIR/local-llm.env" 2>/dev/null | cut -d= -f2- || echo unknown)"
@@ -186,9 +199,18 @@ restore_backup() {
     run_as_root install -m 600 "$snapshot_dir/freewiller-gateway.env" "$STATE_DIR/freewiller-gateway.env"
   fi
 
+  if [ -f "$snapshot_dir/provider-routing.env" ]; then
+    run_as_root install -m 600 "$snapshot_dir/provider-routing.env" "$STATE_DIR/provider-routing.env"
+  fi
+
   if [ -f "$snapshot_dir/repo.env" ]; then
     run_as_root install -m 600 "$snapshot_dir/repo.env" "$REPO_ENV_FILE"
     run_as_root chown "$OWNER_USER:$OWNER_GROUP" "$REPO_ENV_FILE"
+  fi
+
+  if [ -f "$snapshot_dir/telemetry/provider-usage.jsonl" ]; then
+    run_as_root mkdir -p "$(dirname "$USAGE_LEDGER_FILE")"
+    run_as_root install -m 644 "$snapshot_dir/telemetry/provider-usage.jsonl" "$USAGE_LEDGER_FILE"
   fi
 
   if [ -f "$journal_memory_path" ]; then

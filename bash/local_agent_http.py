@@ -25,6 +25,9 @@ def namespace_from_payload(payload: dict) -> argparse.Namespace:
         source=payload.get("source", "session"),
         tags=payload.get("tags", "local,agent"),
         memory_text=payload.get("memory_text", ""),
+        task_class=payload.get("task_class", ""),
+        privacy_class=payload.get("privacy_class", ""),
+        provider=payload.get("provider", ""),
     )
 
 
@@ -74,6 +77,16 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 output = local_agent.run_command([str(local_agent.LOCAL_LLM_SH), "policy"])
                 self._write_json(HTTPStatus.OK, {"policy": output})
+            except Exception as exc:
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return
+
+        if self.path == "/providers":
+            try:
+                self._write_json(
+                    HTTPStatus.OK,
+                    local_agent.provider_router.public_policy_view(local_agent.provider_router.load_router_config()),
+                )
             except Exception as exc:
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return
@@ -153,13 +166,20 @@ class Handler(BaseHTTPRequestHandler):
 
             if self.path == "/dispatch":
                 result = local_agent.execute_orchestration(args)
-                gateway_result = local_agent.dispatch_to_gateway(
+                provider_result = local_agent.dispatch_to_provider(
                     result["remote_package_path"],
                     instructions=local_agent.default_gateway_instructions(),
+                    provider_plan=result["provider_plan"],
                 )
-                result["gateway_response_text"] = gateway_result["response_text"]
-                result["gateway_response_json_path"] = gateway_result["response_json_path"]
-                result["gateway_response_text_path"] = gateway_result["response_text_path"]
+                result["provider_response_text"] = provider_result["response_text"]
+                result["provider_response_json_path"] = provider_result["response_json_path"]
+                result["provider_response_text_path"] = provider_result["response_text_path"]
+                result["gateway_response_text"] = provider_result["response_text"]
+                result["gateway_response_json_path"] = provider_result["response_json_path"]
+                result["gateway_response_text_path"] = provider_result["response_text_path"]
+                result["usage"] = provider_result["usage"]
+                result["estimated_cost_usd"] = provider_result["estimated_cost_usd"]
+                result["usage_log_path"] = provider_result["usage_log_path"]
                 self._write_json(HTTPStatus.OK, result)
                 return
 

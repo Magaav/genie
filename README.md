@@ -38,6 +38,11 @@ These paths live under `/local` so you can inspect and evolve the running node f
 
 The repo-local secret file `/local/.env` is also ignored by Git and excluded from the Docker build context. Backups include it as `repo.env` so local bot tokens and similar bootstrap secrets can be restored onto a respawned node.
 
+Phase 0A routing state also lives in runtime state:
+
+- provider routing policy: `/local/state/freewiller/provider-routing.env`
+- provider usage ledger: `/local/state/freewiller/telemetry/provider-usage.jsonl`
+
 The shared memory layer is hybrid and compact:
 
 - append-only event journal: `/local/state/freewiller/memory/journal.jsonl`
@@ -131,6 +136,7 @@ docker ps
 ollama list
 curl -s http://127.0.0.1:18790/health
 curl -s http://127.0.0.1:18790/policy
+curl -s http://127.0.0.1:18790/providers
 curl -s http://127.0.0.1:18790/memory/stats
 bash /local/bash/backup_freewiller.sh list
 ```
@@ -183,6 +189,19 @@ Then restart the local-agent service:
 ```bash
 bash /local/bash/install_local_agent_service.sh
 ```
+
+If you want to add cheaper external lanes later, edit:
+
+```bash
+/local/state/freewiller/provider-routing.env
+```
+
+That file controls:
+
+- default privacy routing
+- the cheap compatible lane
+- the public external lane
+- the provider usage ledger location
 
 ## OpenClaw Seed Integration
 
@@ -258,6 +277,8 @@ Each archive contains a compact recovery bundle:
 - `repo.env` from `/local/.env` if present
 - `local-llm.env`
 - `freewiller-gateway.env` if present
+- `provider-routing.env` if present
+- `telemetry/provider-usage.jsonl` if present
 - `journal.jsonl`
 - compact memory export with summaries, facts, TODOs, and constraints
 - `manifest.json`
@@ -366,6 +387,7 @@ That model choice is intentional for this class of small CPU VM. Larger local mo
 - [`bash/local_memory.py`](bash/local_memory.py)
 - [`bash/local_agent.py`](bash/local_agent.py)
 - [`bash/local_agent_http.py`](bash/local_agent_http.py)
+- [`bash/provider_router.py`](bash/provider_router.py)
 - [`bash/backup_freewiller.sh`](bash/backup_freewiller.sh)
 - [`bash/cronjob_freewiller.sh`](bash/cronjob_freewiller.sh)
 - [`docker-compose.local-agent.yml`](docker-compose.local-agent.yml)
