@@ -42,6 +42,7 @@ Phase 0A routing state also lives in runtime state:
 
 - provider routing policy: `/local/state/freewiller/provider-routing.env`
 - provider registry: `/local/state/freewiller/provider-registry.json`
+- Brain Router discovery state: `/local/state/freewiller/telemetry/provider-discovery.json`
 - provider health state: `/local/state/freewiller/telemetry/provider-health.json`
 - provider benchmark scores: `/local/state/freewiller/telemetry/provider-benchmarks.json`
 - provider usage ledger: `/local/state/freewiller/telemetry/provider-usage.jsonl`
@@ -166,6 +167,7 @@ curl -s http://127.0.0.1:18790/providers
 curl -s 'http://127.0.0.1:18790/providers/ranking?task_class=summarize&privacy_class=public'
 curl -s http://127.0.0.1:18790/providers/health
 curl -s http://127.0.0.1:18790/providers/scorecards
+curl -s http://127.0.0.1:18790/providers/discovery
 curl -s http://127.0.0.1:18790/memory/stats
 bash /local/bash/backup_freewiller.sh list
 sudo crontab -l
@@ -248,7 +250,9 @@ The local-agent provider interfaces are:
 - `GET /providers/ranking`
 - `GET /providers/health`
 - `GET /providers/scorecards`
+- `GET /providers/discovery`
 - `POST /providers/evaluate`
+- `POST /providers/discover`
 
 The CLI interface is:
 
@@ -258,6 +262,8 @@ python3 /local/bash/provider_router.py rank --task-class summarize --privacy-cla
 python3 /local/bash/provider_router.py health
 python3 /local/bash/provider_router.py heartbeat
 python3 /local/bash/provider_router.py scorecards --refresh
+python3 /local/bash/provider_router.py discovery
+python3 /local/bash/provider_router.py discover --provider-family nvidia --sync
 python3 /local/bash/provider_router.py evaluate --profile summarize
 ```
 
@@ -298,12 +304,24 @@ Freewiller keeps task-family scorecards under:
 /local/state/freewiller/telemetry/provider-scorecards.json
 ```
 
+It keeps provider discovery under:
+
+```bash
+/local/state/freewiller/telemetry/provider-discovery.json
+```
+
 It uses those scorecards plus live health to rank providers per task family, reserve slow-powerful models for background work, and fall back when the frontier lane is exhausted.
 
 The frontier exhaustion switches are:
 
 - `FREEWILLER_FRONTIER_EXHAUSTED_FALLBACK=1`
 - `FREEWILLER_FRONTIER_EXHAUSTED=0`
+
+The subsystem that owns provider discovery, scoring, failover, and frontier preservation is documented in:
+
+```bash
+/local/docs/freewiller_brain_router.md
+```
 
 ## OpenClaw Seed Integration
 

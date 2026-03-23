@@ -189,6 +189,35 @@ Success criteria:
 - provider choice is explainable
 - cost data exists for future optimization
 
+## Phase 0C: Brain Router
+
+Objective:
+
+- turn provider routing into an adaptive subsystem that improves with use
+
+Core outcomes:
+
+- explicit Brain Router subsystem
+- provider discovery
+- provider lifecycle states
+- task-family scorecards
+- frontier exhaustion fallback
+- leader and backup model selection
+
+Concrete work:
+
+- add Brain Router docs and terminology
+- discover NVIDIA account models through the live provider catalog
+- import bounded candidate subsets as `benchmark_pending`
+- promote winners into eligible and leader states
+- preserve frontier as the highest-authority final lane
+
+Success criteria:
+
+- Freewiller can discover and classify new provider candidates
+- provider leaders are derived from real scorecards instead of static preference
+- frontier scarcity no longer causes total failure for non-secret work
+
 ## Phase 0B: Security Base
 
 Objective:

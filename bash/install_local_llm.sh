@@ -301,7 +301,11 @@ install_aliases() {
 }
 
 sync_provider_registry() {
-  python3 "$ROOT_DIR/bash/provider_router.py" sync >/tmp/freewiller-provider-sync.json
+  if [ -n "${NVIDIA_API_KEY:-}" ]; then
+    python3 "$ROOT_DIR/bash/provider_router.py" discover --provider-family nvidia --sync >/tmp/freewiller-provider-sync.json
+  else
+    python3 "$ROOT_DIR/bash/provider_router.py" sync >/tmp/freewiller-provider-sync.json
+  fi
   cat /tmp/freewiller-provider-sync.json
   rm -f /tmp/freewiller-provider-sync.json
 }

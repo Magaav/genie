@@ -13,6 +13,7 @@
       "api_mode": "auto",
       "extra_body": {},
       "trust_tier": "frontier",
+      "brain_router_state": "curated",
       "allowed_privacy": ["public", "internal", "private", "secret"],
       "allowed_tasks": ["architecture", "chat", "classify", "coding", "compact", "extract", "ops", "reflect", "research_public", "summarize"],
       "max_output_tokens": 2048,
@@ -40,6 +41,7 @@
         }
       },
       "trust_tier": "trusted_external",
+      "brain_router_state": "curated",
       "allowed_privacy": ["public", "internal"],
       "allowed_tasks": ["compact", "reflect", "research_public"],
       "max_output_tokens": 1024,
@@ -60,6 +62,7 @@
       "api_mode": "chat",
       "extra_body": {},
       "trust_tier": "trusted_external",
+      "brain_router_state": "curated",
       "allowed_privacy": ["public", "internal"],
       "allowed_tasks": ["chat", "classify", "compact", "extract", "reflect", "research_public", "summarize"],
       "max_output_tokens": 1024,

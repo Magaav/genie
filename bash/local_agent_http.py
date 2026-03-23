@@ -132,6 +132,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return
 
+        if parsed.path == "/providers/discovery":
+            try:
+                self._write_json(HTTPStatus.OK, local_agent.provider_router.discovery_public_view())
+            except Exception as exc:
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return
+
         if parsed.path == "/memory/stats":
             try:
                 self._write_json(HTTPStatus.OK, local_memory.memory_stats())
@@ -207,6 +214,14 @@ class Handler(BaseHTTPRequestHandler):
                     provider_id=str(payload.get("provider", "")),
                     profile_name=str(payload.get("profile", "")),
                     judge_mode=str(payload.get("judge_mode", "targeted")),
+                )
+                self._write_json(HTTPStatus.OK, result)
+                return
+
+            if self.path == "/providers/discover":
+                result = local_agent.provider_router.discover_models(
+                    provider_family=str(payload.get("provider_family", "nvidia")),
+                    sync=coerce_bool(payload.get("sync", True)),
                 )
                 self._write_json(HTTPStatus.OK, result)
                 return

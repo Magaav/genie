@@ -233,6 +233,17 @@ DEFAULT_USAGE_LEDGER_FILE = TELEMETRY_DIR / "provider-usage.jsonl"
 DEFAULT_HEALTH_FILE = TELEMETRY_DIR / "provider-health.json"
 DEFAULT_BENCHMARKS_FILE = TELEMETRY_DIR / "provider-benchmarks.json"
 DEFAULT_SCORECARDS_FILE = TELEMETRY_DIR / "provider-scorecards.json"
+DEFAULT_DISCOVERY_FILE = TELEMETRY_DIR / "provider-discovery.json"
+DISCOVERY_IMPORT_LIMIT = 24
+BRAIN_ROUTER_STATES = {
+    "curated",
+    "discovered",
+    "benchmark_pending",
+    "eligible",
+    "leader",
+    "degraded",
+    "retired",
+}
 
 
 def utc_now() -> str:
@@ -376,6 +387,13 @@ def normalize_kind(value: str) -> str:
     return ""
 
 
+def normalize_brain_router_state(value: str) -> str:
+    candidate = value.strip().lower()
+    if candidate in BRAIN_ROUTER_STATES:
+        return candidate
+    return ""
+
+
 def normalize_task_list(values: Any, default: list[str]) -> list[str]:
     if isinstance(values, list):
         normalized = [normalize_task_class(str(item)) for item in values]
@@ -483,6 +501,7 @@ def default_registry_entry_frontier(raw: dict[str, str]) -> dict[str, Any]:
         "cost_input_per_million": env_float(raw, "FREEWILLER_FRONTIER_INPUT_COST_PER_MILLION"),
         "cost_output_per_million": env_float(raw, "FREEWILLER_FRONTIER_OUTPUT_COST_PER_MILLION"),
         "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+        "brain_router_state": "curated",
     }
 
 
@@ -519,6 +538,7 @@ def default_registry_entries_nvidia(raw: dict[str, str]) -> list[dict[str, Any]]
                 "cost_input_per_million": env_float(raw, f"{spec['id'].upper()}_INPUT_COST_PER_MILLION"),
                 "cost_output_per_million": env_float(raw, f"{spec['id'].upper()}_OUTPUT_COST_PER_MILLION"),
                 "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+                "brain_router_state": "curated",
             }
         )
 
@@ -549,6 +569,7 @@ def default_registry_entry_openrouter(raw: dict[str, str]) -> dict[str, Any] | N
         "cost_input_per_million": env_float(raw, "FREEWILLER_OPENROUTER_INPUT_COST_PER_MILLION"),
         "cost_output_per_million": env_float(raw, "FREEWILLER_OPENROUTER_OUTPUT_COST_PER_MILLION"),
         "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+        "brain_router_state": "curated",
     }
 
 
@@ -579,12 +600,158 @@ def default_registry_entry_legacy(raw: dict[str, str], *, public_only: bool) -> 
         "cost_input_per_million": env_float(raw, f"{prefix}_INPUT_COST_PER_MILLION"),
         "cost_output_per_million": env_float(raw, f"{prefix}_OUTPUT_COST_PER_MILLION"),
         "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+        "brain_router_state": "curated",
     }
 
 
+def nvidia_curated_model_ids() -> set[str]:
+    return {str(item.get("model", "")).strip() for item in NVIDIA_MODEL_CATALOG}
+
+
+def is_discoverable_nvidia_text_model(model_id: str) -> bool:
+    value = model_id.strip().lower()
+    if not value:
+        return False
+    blocked_tokens = {
+        "embed",
+        "bge-",
+        "vision",
+        "vlm",
+        "video",
+        "image",
+        "paligemma",
+        "deplot",
+        "kosmos",
+        "fuyu",
+        "guard",
+        "guardian",
+        "shieldgemma",
+        "cosmos",
+        "rerank",
+        "nv-embed",
+    }
+    if any(token in value for token in blocked_tokens):
+        return False
+    keep_tokens = {
+        "instruct",
+        "chat",
+        "reason",
+        "coder",
+        "code",
+        "oss",
+        "llama",
+        "qwen",
+        "deepseek",
+        "kimi",
+        "glm",
+        "gemma",
+        "granite",
+        "mistral",
+        "codestral",
+        "devstral",
+        "phi",
+        "jamba",
+        "dbrx",
+        "nemotron",
+        "seed-oss",
+        "minimax",
+        "yi-large",
+        "baichuan",
+        "starcoder",
+    }
+    return any(token in value for token in keep_tokens)
+
+
+def infer_discovered_nvidia_profile(model_id: str) -> dict[str, Any]:
+    value = model_id.lower()
+    interactive = True
+    latency_tier = "normal"
+    strength_tier = "strong"
+    allowed_tasks = sorted(CHEAP_ELIGIBLE_TASKS)
+    max_output_tokens = 4096
+    request_timeout_seconds = 120
+
+    if any(token in value for token in ("405b", "397b", "355b", "123b", "120b", "70b", "90b", "405", "reason")):
+        latency_tier = "slow"
+        interactive = False
+        strength_tier = "powerful"
+        allowed_tasks = sorted(SLOW_POWERFUL_TASKS)
+        max_output_tokens = 8192
+        request_timeout_seconds = 240
+    elif any(token in value for token in ("27b", "34b", "32b", "22b", "17b", "16e", "128e", "14b")):
+        strength_tier = "powerful"
+    elif any(token in value for token in ("3b", "7b", "8b", "mini", "nano")):
+        strength_tier = "standard"
+
+    return {
+        "interactive": interactive,
+        "latency_tier": latency_tier,
+        "strength_tier": strength_tier,
+        "allowed_tasks": allowed_tasks,
+        "max_output_tokens": max_output_tokens,
+        "request_timeout_seconds": request_timeout_seconds,
+    }
+
+
+def discovery_registry_entries(raw: dict[str, str], discovery_store: dict[str, Any]) -> list[dict[str, Any]]:
+    api_key_env = first_present_key(raw, "NVIDIA_API_KEY", "FREEWILLER_NVIDIA_API_KEY", "NGC_API_KEY", "NVIDIA_KIMI_K25_API_KEY")
+    if not api_key_env:
+        return []
+
+    provider_store = discovery_store.get("providers", {}).get("nvidia", {})
+    candidates = provider_store.get("candidate_entries", [])
+    if not isinstance(candidates, list):
+        return []
+
+    api_base_url = env_get(raw, "FREEWILLER_NVIDIA_API_BASE_URL", "NVIDIA_API_BASE_URL", default="https://integrate.api.nvidia.com/v1")
+    api_mode = env_get(raw, "FREEWILLER_NVIDIA_API_MODE", "NVIDIA_API_MODE", default="chat")
+    entries: list[dict[str, Any]] = []
+    curated_model_ids = nvidia_curated_model_ids()
+
+    for candidate in candidates[:DISCOVERY_IMPORT_LIMIT]:
+        if not isinstance(candidate, dict):
+            continue
+        model = str(candidate.get("model", "")).strip()
+        if not model or model in curated_model_ids:
+            continue
+        profile = infer_discovered_nvidia_profile(model)
+        entries.append(
+            {
+                "id": sanitize_provider_name(f"nvidia_auto_{model}"),
+                "label": f"NVIDIA Auto {model}",
+                "enabled": False,
+                "provider_family": "nvidia",
+                "kind": "openai_compatible",
+                "api_key_env": api_key_env,
+                "api_base_url": api_base_url,
+                "model": model,
+                "api_mode": api_mode,
+                "extra_body": {},
+                "trust_tier": "trusted_external",
+                "latency_tier": profile["latency_tier"],
+                "strength_tier": profile["strength_tier"],
+                "interactive": profile["interactive"],
+                "allowed_privacy": ["public", "internal"],
+                "allowed_tasks": profile["allowed_tasks"],
+                "max_output_tokens": profile["max_output_tokens"],
+                "request_timeout_seconds": profile["request_timeout_seconds"],
+                "cost_input_per_million": None,
+                "cost_output_per_million": None,
+                "benchmark_profiles": sorted(BENCHMARK_PROFILES),
+                "brain_router_state": "benchmark_pending",
+                "discovered_at": str(candidate.get("discovered_at", provider_store.get("updated_at", ""))),
+                "discovery_source": "nvidia:/v1/models",
+                "source_owned_by": str(candidate.get("owned_by", "")),
+            }
+        )
+    return entries
+
+
 def default_registry_entries(raw: dict[str, str]) -> list[dict[str, Any]]:
+    discovery_store = load_discovery_store()
     entries: list[dict[str, Any]] = [default_registry_entry_frontier(raw)]
     nvidia_entries = default_registry_entries_nvidia(raw)
+    discovered_nvidia_entries = discovery_registry_entries(raw, discovery_store)
     openrouter_entry = default_registry_entry_openrouter(raw)
     legacy_cheap_entry = default_registry_entry_legacy(raw, public_only=False)
     legacy_public_entry = default_registry_entry_legacy(raw, public_only=True)
@@ -595,6 +762,7 @@ def default_registry_entries(raw: dict[str, str]) -> list[dict[str, Any]]:
         legacy_public_entry = None
 
     entries.extend(nvidia_entries)
+    entries.extend(discovered_nvidia_entries)
     for candidate in (openrouter_entry, legacy_cheap_entry, legacy_public_entry):
         if candidate:
             entries.append(candidate)
@@ -614,6 +782,7 @@ def normalize_provider_entry(raw_entry: dict[str, Any]) -> dict[str, Any]:
     request_timeout_seconds = int(entry.get("request_timeout_seconds", 90))
     interactive = bool(entry.get("interactive", True))
     api_mode = str(entry.get("api_mode", "chat")).strip().lower() or "chat"
+    brain_router_state = normalize_brain_router_state(str(entry.get("brain_router_state", "eligible"))) or "eligible"
     extra_body = entry.get("extra_body")
     if not isinstance(extra_body, dict):
         extra_body = {}
@@ -633,6 +802,10 @@ def normalize_provider_entry(raw_entry: dict[str, Any]) -> dict[str, Any]:
         "latency_tier": str(entry.get("latency_tier", "normal")).strip() or "normal",
         "strength_tier": str(entry.get("strength_tier", "standard")).strip() or "standard",
         "interactive": interactive,
+        "brain_router_state": brain_router_state,
+        "discovered_at": str(entry.get("discovered_at", "")).strip(),
+        "discovery_source": str(entry.get("discovery_source", "")).strip(),
+        "source_owned_by": str(entry.get("source_owned_by", "")).strip(),
         "allowed_privacy": allowed_privacy,
         "allowed_tasks": allowed_tasks,
         "max_output_tokens": max_output_tokens,
@@ -646,21 +819,7 @@ def normalize_provider_entry(raw_entry: dict[str, Any]) -> dict[str, Any]:
 def merge_registry_entries(existing_entries: list[dict[str, Any]], auto_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     auto_index = {entry["id"]: normalize_provider_entry(entry) for entry in auto_entries}
-    auto_managed_ids = {
-        "frontier_gateway",
-        "nvidia_gpt_oss_120b",
-        "nvidia_kimi_k2_instruct",
-        "nvidia_qwen3_next_80b_a3b_instruct",
-        "nvidia_kimi_k2_5",
-        "nvidia_glm5",
-        "nvidia_glm4_7",
-        "nvidia_deepseek_v3_1",
-        "nvidia_qwen3_5_397b_a17b",
-        "nvidia_nemotron_3_nano_30b_a3b",
-        "openrouter_auto",
-        "legacy_cheap",
-        "legacy_public",
-    }
+    auto_managed_ids = set(auto_index.keys())
 
     for entry in auto_entries:
         normalized = normalize_provider_entry(entry)
@@ -690,6 +849,88 @@ def load_registry_payload() -> dict[str, Any]:
         if isinstance(payload, list):
             return {"version": "phase0c", "providers": payload}
     return {"version": "phase0c", "providers": []}
+
+
+def fetch_nvidia_models(raw: dict[str, str]) -> list[dict[str, Any]]:
+    api_key = env_get(raw, "NVIDIA_API_KEY", "FREEWILLER_NVIDIA_API_KEY", "NGC_API_KEY", "NVIDIA_KIMI_K25_API_KEY")
+    if not api_key:
+        return []
+    api_base_url = env_get(raw, "FREEWILLER_NVIDIA_API_BASE_URL", "NVIDIA_API_BASE_URL", default="https://integrate.api.nvidia.com/v1").rstrip("/")
+
+    import urllib.request
+
+    request = urllib.request.Request(
+        f"{api_base_url}/models",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if isinstance(payload, dict):
+        models = payload.get("data", [])
+    else:
+        models = payload
+    if not isinstance(models, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("id", "")).strip()
+        if not model_id:
+            continue
+        normalized.append(
+            {
+                "model": model_id,
+                "owned_by": str(item.get("owned_by", "")).strip(),
+                "created": item.get("created"),
+                "discoverable_text_candidate": is_discoverable_nvidia_text_model(model_id),
+                "discovered_at": utc_now(),
+            }
+        )
+    return normalized
+
+
+def discover_models(provider_family: str = "", sync: bool = False) -> dict[str, Any]:
+    family = sanitize_provider_name(provider_family or "nvidia") or "nvidia"
+    raw = load_raw_env()
+    store = load_discovery_store()
+    summaries: dict[str, Any] = {}
+
+    if family in {"", "nvidia"}:
+        models = fetch_nvidia_models(raw)
+        candidate_entries = [item for item in models if item.get("discoverable_text_candidate")]
+        provider_payload = {
+            "provider_family": "nvidia",
+            "total_models": len(models),
+            "candidate_models": len(candidate_entries),
+            "models": models,
+            "candidate_entries": candidate_entries,
+            "updated_at": utc_now(),
+        }
+        store.setdefault("providers", {})["nvidia"] = provider_payload
+        summaries["nvidia"] = {
+            "total_models": len(models),
+            "candidate_models": len(candidate_entries),
+        }
+
+    save_discovery_store(store)
+    if sync:
+        sync_registry(write=True)
+    return {
+        "discovered_at": utc_now(),
+        "providers": summaries,
+        "discovery_file": str(DEFAULT_DISCOVERY_FILE),
+        "registry_synced": bool(sync),
+    }
+
+
+def discovery_public_view(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or load_router_config()
+    return {
+        "updated_at": config.get("discovery_store", {}).get("updated_at", ""),
+        "discovery_file": config["discovery_file"],
+        "providers": config.get("discovery_store", {}).get("providers", {}),
+    }
 
 
 def sync_registry(write: bool = False) -> dict[str, Any]:
@@ -764,6 +1005,22 @@ def load_scorecard_store() -> dict[str, Any]:
 def save_scorecard_store(payload: dict[str, Any]) -> None:
     payload["updated_at"] = utc_now()
     save_json_file(DEFAULT_SCORECARDS_FILE, payload)
+
+
+def load_discovery_store() -> dict[str, Any]:
+    payload = load_json_file(DEFAULT_DISCOVERY_FILE, {})
+    if not isinstance(payload, dict):
+        payload = {}
+    if not isinstance(payload.get("providers"), dict):
+        payload["providers"] = {}
+    payload.setdefault("version", "phase0c")
+    payload.setdefault("updated_at", "")
+    return payload
+
+
+def save_discovery_store(payload: dict[str, Any]) -> None:
+    payload["updated_at"] = utc_now()
+    save_json_file(DEFAULT_DISCOVERY_FILE, payload)
 
 
 def health_entry_default(provider_id: str, provider_enabled: bool) -> dict[str, Any]:
@@ -1102,6 +1359,12 @@ def provider_should_be_eligible(provider: dict[str, Any], task_class: str, priva
 
 
 def provider_public_view(provider: dict[str, Any], *, include_score_components: bool = False) -> dict[str, Any]:
+    brain_router_state = provider.get("brain_router_state", "eligible")
+    roles = provider.get("brain_router_roles") or []
+    if any(str(role).startswith("leader:") for role in roles):
+        brain_router_state = "leader"
+    if provider.get("health", {}).get("state") in {"degraded", "rate_limited", "auth_error"} and brain_router_state not in {"curated", "retired"}:
+        brain_router_state = "degraded"
     view = {
         "id": provider["id"],
         "label": provider.get("label", provider["id"]),
@@ -1114,6 +1377,7 @@ def provider_public_view(provider: dict[str, Any], *, include_score_components: 
         "latency_tier": provider.get("latency_tier", "normal"),
         "strength_tier": provider.get("strength_tier", "standard"),
         "interactive": provider.get("interactive", True),
+        "brain_router_state": brain_router_state,
         "allowed_privacy": provider.get("allowed_privacy", []),
         "allowed_tasks": provider.get("allowed_tasks", []),
         "max_output_tokens": provider.get("max_output_tokens"),
@@ -1134,6 +1398,14 @@ def provider_public_view(provider: dict[str, Any], *, include_score_components: 
         view["benchmark_profiles"] = provider["benchmark_profiles"]
     if isinstance(provider.get("scorecard"), dict):
         view["scorecard"] = provider["scorecard"]
+    if roles:
+        view["brain_router_roles"] = roles
+    if provider.get("discovered_at"):
+        view["discovered_at"] = provider["discovered_at"]
+    if provider.get("discovery_source"):
+        view["discovery_source"] = provider["discovery_source"]
+    if provider.get("source_owned_by"):
+        view["source_owned_by"] = provider["source_owned_by"]
     if provider.get("degraded_from_task_class"):
         view["degraded_from_task_class"] = provider["degraded_from_task_class"]
     if provider.get("fallback_scored_as"):
@@ -1151,6 +1423,7 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
     health_store = load_health_store()
     benchmark_store = load_benchmark_store()
     scorecard_store = load_scorecard_store()
+    discovery_store = load_discovery_store()
     default_privacy = normalize_privacy_class(env_get(raw, "FREEWILLER_ROUTER_DEFAULT_PRIVACY", default="internal")) or "internal"
     allow_public_external = env_bool(raw, "FREEWILLER_ROUTER_ALLOW_PUBLIC_EXTERNAL", True)
     allow_internal_cheap = env_bool(raw, "FREEWILLER_ROUTER_ALLOW_INTERNAL_CHEAP", True)
@@ -1183,6 +1456,7 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
         entry["health"] = health_entry
         entry["configured"] = configured
         entry["scorecard"] = scorecard_store.get("providers", {}).get(entry["id"], {})
+        entry["brain_router_roles"] = brain_router_roles_for(entry["id"], scorecard_store)
         providers[entry["id"]] = entry
 
     return {
@@ -1195,11 +1469,13 @@ def build_provider_config(raw: dict[str, str]) -> dict[str, Any]:
         "health_file": str(DEFAULT_HEALTH_FILE),
         "benchmarks_file": str(DEFAULT_BENCHMARKS_FILE),
         "scorecards_file": str(DEFAULT_SCORECARDS_FILE),
+        "discovery_file": str(DEFAULT_DISCOVERY_FILE),
         "warnings": warnings,
         "providers": providers,
         "health_store": health_store,
         "benchmark_store": benchmark_store,
         "scorecard_store": scorecard_store,
+        "discovery_store": discovery_store,
         "allow_frontier_exhausted_fallback": allow_frontier_exhausted_fallback,
         "frontier_exhausted": frontier_exhausted,
     }
@@ -1235,7 +1511,28 @@ def summarize_task_leaders(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def brain_router_roles_for(provider_id: str, scorecard_store: dict[str, Any]) -> list[str]:
+    roles: list[str] = []
+    for task_class, info in scorecard_store.get("leaders", {}).items():
+        if not isinstance(info, dict):
+            continue
+        if info.get("primary") == provider_id:
+            roles.append(f"leader:{task_class}")
+        if info.get("backup") == provider_id:
+            roles.append(f"backup:{task_class}")
+    return roles
+
+
 def public_policy_view(config: dict[str, Any]) -> dict[str, Any]:
+    discovery_summary = {}
+    for family, info in config.get("discovery_store", {}).get("providers", {}).items():
+        if not isinstance(info, dict):
+            continue
+        discovery_summary[family] = {
+            "total_models": int(info.get("total_models", 0) or 0),
+            "candidate_models": int(info.get("candidate_models", 0) or 0),
+            "updated_at": info.get("updated_at", ""),
+        }
     return {
         "policy_version": config["policy_version"],
         "default_privacy": config["default_privacy"],
@@ -1248,9 +1545,11 @@ def public_policy_view(config: dict[str, Any]) -> dict[str, Any]:
         "health_file": config["health_file"],
         "benchmarks_file": config["benchmarks_file"],
         "scorecards_file": config["scorecards_file"],
+        "discovery_file": config["discovery_file"],
         "warnings": config["warnings"],
         "ranking_summary": summarize_rankings(config),
         "task_leaders": summarize_task_leaders(config),
+        "discovery_summary": discovery_summary,
         "providers": [provider_public_view(provider) for provider in config["providers"].values()],
     }
 
@@ -1889,6 +2188,22 @@ def scorecards_public_view(refresh: bool = False) -> dict[str, Any]:
     }
 
 
+def discover_command(args: argparse.Namespace) -> int:
+    print(
+        json.dumps(
+            discover_models(provider_family=args.provider_family, sync=args.sync),
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+    return 0
+
+
+def discovery_command(_args: argparse.Namespace) -> int:
+    print(json.dumps(discovery_public_view(), indent=2, ensure_ascii=True))
+    return 0
+
+
 def sync_command(_args: argparse.Namespace) -> int:
     payload = sync_registry(write=True)
     print(json.dumps(payload, indent=2, ensure_ascii=True))
@@ -1968,6 +2283,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     providers_parser = subparsers.add_parser("providers")
     providers_parser.set_defaults(func=providers_command)
+
+    discovery_parser = subparsers.add_parser("discovery")
+    discovery_parser.set_defaults(func=discovery_command)
+
+    discover_parser = subparsers.add_parser("discover")
+    discover_parser.add_argument("--provider-family", default="nvidia")
+    discover_parser.add_argument("--sync", action="store_true")
+    discover_parser.set_defaults(func=discover_command)
 
     rank_parser = subparsers.add_parser("rank")
     rank_parser.add_argument("--task", default="")
