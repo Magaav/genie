@@ -55,6 +55,24 @@ Retrieval uses:
 - normalized vector similarity
 - FTS5 lexical bonus inside SQLite
 
+Phase 0B security metadata is now first-class in memory:
+
+- `trust_class`
+- `privacy_class`
+- `source_type`
+- `source_id`
+- `source_provider`
+- `source_model`
+- `verification_status`
+- `operator_confirmed`
+- `policy_tags`
+
+Current safety defaults:
+
+- untrusted identity/policy rewrite attempts are journaled but not promoted into durable memory
+- secret-class memory is excluded from OpenClaw workspace projections and remote context packaging by default
+- a synchronized `/local/.openclaw/workspace/BOUNDARIES.md` projection carries the current prompt-boundary rules
+
 The target next-stage memory architecture is specified in:
 
 - [`docs/freewiller_memory_spec.md`](docs/freewiller_memory_spec.md)
@@ -310,6 +328,26 @@ curl -s -X POST http://127.0.0.1:18790/memory/ingest \
     "text": "Keep a single shared memory substrate across endpoints."
   }'
 ```
+
+Optional security fields for ingest:
+
+- `trust_class`
+- `privacy_class`
+- `source_type`
+- `source_id`
+- `source_provider`
+- `source_model`
+- `verification_status`
+- `operator_confirmed`
+- `policy_tags`
+
+If you omit them, Freewiller infers them from the channel, source, metadata, and text.
+
+If an event looks like an untrusted attempt to rewrite identity, policy, or permissions, it is still journaled for audit but returned with:
+
+- `stored: false`
+- `promotion_blocked: true`
+- `promotion_reason: blocked_untrusted_policy_rewrite`
 
 Example hybrid retrieval:
 

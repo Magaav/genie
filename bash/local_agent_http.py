@@ -124,6 +124,15 @@ class Handler(BaseHTTPRequestHandler):
                     tags=local_memory.normalize_tags(payload.get("tags", [])),
                     metadata=local_memory.normalize_metadata(payload.get("metadata", {})),
                     derive_memory=not coerce_bool(payload.get("skip_memory", False)),
+                    trust_class=str(payload.get("trust_class", "")),
+                    privacy_class=str(payload.get("privacy_class", "")),
+                    source_type=str(payload.get("source_type", "")),
+                    source_id=str(payload.get("source_id", "")),
+                    source_provider=str(payload.get("source_provider", "")),
+                    source_model=str(payload.get("source_model", "")),
+                    verification_status=str(payload.get("verification_status", "")),
+                    operator_confirmed=coerce_bool(payload.get("operator_confirmed", False)),
+                    policy_tags=local_memory.normalize_policy_tags(payload.get("policy_tags", [])),
                 )
                 self._write_json(HTTPStatus.OK, result)
                 return
