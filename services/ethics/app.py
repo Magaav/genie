@@ -18,6 +18,23 @@ HOST = os.environ.get("GENIE_ETHICS_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GENIE_ETHICS_PORT", "18791"))
 STATE_URL = os.environ.get("GENIE_STATE_URL", os.environ.get("GENIE_MEMORY_URL", "http://127.0.0.1:18792")).rstrip("/")
 BRAIN_URL = os.environ.get("GENIE_BRAIN_URL", "http://127.0.0.1:18793").rstrip("/")
+ALLOW_PRIVATE_CHAT_EXTERNAL_FALLBACK = os.environ.get(
+    "GENIE_PRIVATE_CHAT_EXTERNAL_FALLBACK",
+    "1",
+).strip().lower() not in {"0", "false", "no", "off"}
+SENSITIVE_EXTERNAL_HINTS = (
+    "api key",
+    "token",
+    "password",
+    "secret",
+    "credential",
+    "ssh key",
+    "private key",
+    "auth.json",
+    "access.env",
+    "conf.env",
+    ".env",
+)
 
 
 def post_json(url: str, payload: dict, timeout: int = 60) -> dict:
@@ -29,6 +46,23 @@ def post_json(url: str, payload: dict, timeout: int = 60) -> dict:
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def http_error_message(exc: urllib.error.HTTPError) -> str:
+    body_text = ""
+    try:
+        body_text = exc.read().decode("utf-8", errors="replace").strip()
+    except Exception:
+        body_text = ""
+
+    if body_text:
+        try:
+            payload = json.loads(body_text)
+            error_text = str(payload.get("error", body_text)).strip()
+        except json.JSONDecodeError:
+            error_text = body_text
+        return f"HTTP {exc.code} {exc.reason}: {error_text}"
+    return f"HTTP {exc.code} {exc.reason}"
 
 
 def get_text_policy() -> str:
@@ -50,18 +84,117 @@ def namespace_from_payload(payload: dict) -> argparse.Namespace:
     )
 
 
+def looks_sensitive_for_external_fallback(task: str) -> bool:
+    lowered = task.strip().lower()
+    if not lowered:
+        return False
+    return any(hint in lowered for hint in SENSITIVE_EXTERNAL_HINTS)
+
+
+def allowed_privacy_for_provider(provider_privacy_class: str) -> list[str]:
+    allowed = ["public", "internal"]
+    if provider_privacy_class in {"private", "secret"}:
+        allowed.append("private")
+    if provider_privacy_class == "secret":
+        allowed.append("secret")
+    return allowed
+
+
+def should_try_private_chat_external_fallback(
+    *,
+    task: str,
+    task_class: str,
+    source: str,
+    original_privacy_class: str,
+    error_message: str,
+) -> bool:
+    if not ALLOW_PRIVATE_CHAT_EXTERNAL_FALLBACK:
+        return False
+    if source != "telegram":
+        return False
+    if task_class != "chat":
+        return False
+    if original_privacy_class != "private":
+        return False
+    if looks_sensitive_for_external_fallback(task):
+        return False
+    lowered = error_message.strip().lower()
+    return "frontier gateway is unavailable" in lowered
+
+
+def select_provider_plan(
+    *,
+    task: str,
+    task_class: str,
+    source: str,
+    original_privacy_class: str,
+    provider_override: str,
+) -> tuple[dict, str, str]:
+    provider_privacy_class = original_privacy_class
+    privacy_fallback_reason = ""
+
+    try:
+        provider_plan = post_json(
+            f"{BRAIN_URL}/rank",
+            {
+                "task": task,
+                "task_class": task_class,
+                "privacy_class": provider_privacy_class,
+                "provider": provider_override,
+            },
+        )
+        return provider_plan, provider_privacy_class, privacy_fallback_reason
+    except urllib.error.HTTPError as exc:
+        error_message = http_error_message(exc)
+        if not should_try_private_chat_external_fallback(
+            task=task,
+            task_class=task_class,
+            source=source,
+            original_privacy_class=original_privacy_class,
+            error_message=error_message,
+        ):
+            raise RuntimeError(error_message) from exc
+
+    provider_privacy_class = "internal"
+    privacy_fallback_reason = (
+        "Frontier was unavailable for a private Telegram chat, so Genie downgraded provider privacy "
+        "to internal and used the trusted-external lane without sending private memory."
+    )
+    try:
+        provider_plan = post_json(
+            f"{BRAIN_URL}/rank",
+            {
+                "task": task,
+                "task_class": task_class,
+                "privacy_class": provider_privacy_class,
+                "provider": provider_override,
+            },
+        )
+        return provider_plan, provider_privacy_class, privacy_fallback_reason
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(http_error_message(exc)) from exc
+
+
 def execute_task(payload: dict, *, dispatch_mode: bool) -> dict:
     args = namespace_from_payload(payload)
     if not args.task.strip():
         raise RuntimeError("task is required")
 
+    original_privacy_class = (args.privacy_class or "internal").strip().lower() or "internal"
     route = local_agent.route_task(args.task)
+    provider_plan, provider_privacy_class, privacy_fallback_reason = select_provider_plan(
+        task=args.task,
+        task_class=args.task_class,
+        source=args.source,
+        original_privacy_class=original_privacy_class,
+        provider_override=args.provider,
+    )
     context_result = post_json(
         f"{STATE_URL}/context",
         {
             "query": args.task,
             "limit": args.limit,
-            "allowed_privacy": ["public", "internal", "private"],
+            "allowed_privacy": allowed_privacy_for_provider(provider_privacy_class),
         },
     )
     hits_result = post_json(
@@ -69,16 +202,7 @@ def execute_task(payload: dict, *, dispatch_mode: bool) -> dict:
         {
             "query": args.task,
             "limit": args.limit,
-            "allowed_privacy": ["public", "internal", "private"],
-        },
-    )
-    provider_plan = post_json(
-        f"{BRAIN_URL}/rank",
-        {
-            "task": args.task,
-            "task_class": args.task_class,
-            "privacy_class": args.privacy_class,
-            "provider": args.provider,
+            "allowed_privacy": allowed_privacy_for_provider(provider_privacy_class),
         },
     )
 
@@ -100,7 +224,7 @@ def execute_task(payload: dict, *, dispatch_mode: bool) -> dict:
                 "kind": args.kind,
                 "text": memory_source_text,
                 "tags": args.tags,
-                "privacy_class": args.privacy_class,
+                "privacy_class": original_privacy_class,
             },
         )
         memory_id = ingest_result.get("memory_id", "")
@@ -119,6 +243,9 @@ def execute_task(payload: dict, *, dispatch_mode: bool) -> dict:
     result = {
         "route": route,
         "provider_plan": provider_plan,
+        "original_privacy_class": original_privacy_class,
+        "provider_privacy_class": provider_privacy_class,
+        "privacy_fallback_reason": privacy_fallback_reason,
         "stored_memory_id": memory_id,
         "remote_package_path": package_path,
         "memory_hits": hits_result.get("results", []),
@@ -211,7 +338,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, result)
                 return
         except urllib.error.HTTPError as exc:
-            self._write_json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+            self._write_json(HTTPStatus.BAD_GATEWAY, {"error": http_error_message(exc)})
             return
         except Exception as exc:
             self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})

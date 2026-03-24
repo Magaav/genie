@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import threading
 import time
 import urllib.error
@@ -29,6 +30,19 @@ TELEGRAM_ENABLED = os.environ.get("GENIE_TELEGRAM_ENABLED", "1").strip().lower()
     "no",
     "off",
 }
+SENSITIVE_FAILURE_HINTS = (
+    "api key",
+    "token",
+    "password",
+    "secret",
+    "credential",
+    "ssh key",
+    "private key",
+    "auth.json",
+    "access.env",
+    "conf.env",
+    ".env",
+)
 
 
 def read_json_file(path: Path, default: dict) -> dict:
@@ -113,6 +127,29 @@ def telegram_api(method: str, payload: dict, timeout: int = 60) -> dict:
     return http_post_json(f"{telegram_base_url()}/{method}", payload, timeout=timeout)
 
 
+def log_gateway(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
+def looks_sensitive_for_external_failure(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    return any(hint in lowered for hint in SENSITIVE_FAILURE_HINTS)
+
+
+def fallback_reply_text(user_text: str) -> str:
+    if looks_sensitive_for_external_failure(user_text):
+        return (
+            "I cannot answer that right now. The high-trust frontier lane is unavailable, and your request "
+            "looks sensitive, so I will not send it to external models."
+        )
+    return (
+        "I hit a reply failure just now. Please try again in a moment. "
+        "If the frontier lane is still down, Genie will use the trusted external fallback when the request is safe."
+    )
+
+
 def ingest_telegram_event(
     *,
     role: str,
@@ -171,19 +208,24 @@ def reply_to_telegram_message(message: dict) -> None:
         source_id=message_id,
     )
 
-    result = proxy_post(
-        ETHICS_URL,
-        "/reply",
-        {
-            "task": text,
-            "limit": 5,
-            "task_class": "chat",
-            "privacy_class": "private",
-            "source": "telegram",
-        },
-        timeout=300,
-    )
-    reply_text = str(result.get("provider_response_text", "")).strip() or "I do not have a reply yet."
+    try:
+        result = proxy_post(
+            ETHICS_URL,
+            "/reply",
+            {
+                "task": text,
+                "limit": 5,
+                "task_class": "chat",
+                "privacy_class": "private",
+                "source": "telegram",
+            },
+            timeout=300,
+        )
+        reply_text = str(result.get("provider_response_text", "")).strip() or "I do not have a reply yet."
+    except Exception as exc:
+        log_gateway(f"telegram reply failed for chat_id={chat_id} message_id={message_id}: {exc}")
+        reply_text = fallback_reply_text(text)
+
     telegram_api(
         "sendMessage",
         {
@@ -224,14 +266,20 @@ def telegram_worker(stop_event: threading.Event) -> None:
             for update in results:
                 update_id = int(update.get("update_id", 0))
                 next_offset = max(next_offset, update_id + 1)
-                message = update.get("message") or {}
-                chat = message.get("chat") or {}
-                if chat.get("type") != "private":
-                    continue
-                reply_to_telegram_message(message)
-            if next_offset != offset:
-                write_update_offset(next_offset)
-        except Exception:
+                try:
+                    message = update.get("message") or {}
+                    chat = message.get("chat") or {}
+                    if chat.get("type") != "private":
+                        continue
+                    reply_to_telegram_message(message)
+                except Exception as exc:
+                    log_gateway(f"telegram update processing failed for update_id={update_id}: {exc}")
+                finally:
+                    if next_offset != offset:
+                        write_update_offset(next_offset)
+                        offset = next_offset
+        except Exception as exc:
+            log_gateway(f"telegram worker poll failed: {exc}")
             stop_event.wait(5)
 
 
