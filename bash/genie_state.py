@@ -57,6 +57,11 @@ def build_layout(state_dir: Path | None = None) -> dict[str, Path]:
         "runtime_workcells_dir": runtime_dir / "workcells",
         "runtime_review_queue_file": runtime_dir / "review-queue.jsonl",
         "runtime_control_log_file": runtime_dir / "control-log.jsonl",
+        "runtime_mind_state_file": runtime_dir / "mind-state.json",
+        "runtime_mind_cycles_file": runtime_dir / "mind-cycles.jsonl",
+        "runtime_cycles_dir": runtime_dir / "cycles",
+        "runtime_checkpoints_dir": runtime_dir / "checkpoints",
+        "runtime_shadow_reports_dir": runtime_dir / "shadow-reports",
     }
 
 
@@ -126,6 +131,9 @@ def ensure_state_layout(state_dir: Path | None = None) -> dict[str, Path]:
         "runtime_responses_dir",
         "runtime_bridge_dir",
         "runtime_frontier_dir",
+        "runtime_cycles_dir",
+        "runtime_checkpoints_dir",
+        "runtime_shadow_reports_dir",
         "memory_projections_dir",
         "memory_daily_dir",
     ):

@@ -51,6 +51,9 @@ SENSITIVE_EXTERNAL_HINTS = (
 CHECKS_SCRIPT = "/local/bash/genie_checks.sh"
 BACKUP_SCRIPT = "/local/bash/backup_genie.sh"
 WORKCELLS_DIR = Path("/local/state/genie/runtime/workcells")
+MIND_CYCLES_DIR = Path("/local/state/genie/runtime/cycles")
+MIND_CHECKPOINTS_DIR = Path("/local/state/genie/runtime/checkpoints")
+SHADOW_REPORTS_DIR = Path("/local/state/genie/runtime/shadow-reports")
 GENERATED_DOCS_DIR = Path("/local/docs/generated")
 GENERATED_TESTS_DIR = Path("/local/tests/generated")
 GENERATED_TESTS_INIT = GENERATED_TESTS_DIR / "__init__.py"
@@ -58,6 +61,43 @@ REPO_ROOT = Path("/local")
 CONSTITUTION_PATH = REPO_ROOT / "CONSTITUTION.md"
 SAFE_WORKCELL_STATUSES = {"confirmed", "retry"}
 WORKCELL_STALE_SECONDS = max(60, int(os.environ.get("GENIE_WORKCELL_STALE_SECONDS", "900")))
+MIND_STALE_SECONDS = max(600, int(os.environ.get("GENIE_MIND_STALE_SECONDS", "14400")))
+MIND_REFLECTION_INTERVAL_SECONDS = max(
+    1800,
+    int(os.environ.get("GENIE_MIND_REFLECTION_INTERVAL_SECONDS", str(4 * 60 * 60))),
+)
+MIND_MEDITATION_INTERVAL_SECONDS = max(
+    3600,
+    int(os.environ.get("GENIE_MIND_MEDITATION_INTERVAL_SECONDS", str(24 * 60 * 60))),
+)
+MIND_SHADOW_INTERVAL_SECONDS = max(
+    3600,
+    int(os.environ.get("GENIE_MIND_SHADOW_INTERVAL_SECONDS", str(24 * 60 * 60))),
+)
+MIND_DEFAULT_DOMAIN = "memory"
+MIND_STATE_SEQUENCE = (
+    "awake",
+    "reflection",
+    "meditation",
+    "homeostasis_review",
+    "sleep",
+    "awakening_verification",
+    "recovery",
+)
+PROTECTED_SHADOW_PATHS = (
+    "/local/init.sh",
+    "/local/docker/compose.yml",
+    "/local/CONSTITUTION.md",
+    "/local/services/instinct/engine.py",
+    "/local/services/state/app.py",
+)
+SHADOW_COMPONENT_TARGETS = (
+    "/local/bash/local_memory.py",
+    "/local/bash/provider_router.py",
+    "/local/services/ethics/workcell_support.py",
+    "/local/services/state/memory_domain.py",
+    "/local/services/brain/app.py",
+)
 
 
 def post_json(url: str, payload: dict, timeout: int = 60) -> dict:
@@ -603,6 +643,7 @@ def summarize_state_text() -> str:
     memory = summary.get("domains", {}).get("memory", {})
     policy = summary.get("domains", {}).get("policy", {})
     runtime = summary.get("domains", {}).get("runtime", {})
+    mind_state = runtime.get("mind_state", {})
     capabilities = policy.get("files", {}).get("capability_registry", {})
     return "\n".join(
         [
@@ -610,9 +651,12 @@ def summarize_state_text() -> str:
             f"- memory entries: {memory.get('semantic_entries', 0)}",
             f"- journal events: {memory.get('journal_events', 0)}",
             f"- blocked promotions: {memory.get('blocked_promotions', 0)}",
+            f"- mind state: {mind_state.get('state', 'awake')}",
+            f"- active cycle: {mind_state.get('active_cycle_id', '') or 'none'}",
             f"- queued proposals: {runtime.get('review_queue_file', {}).get('queued', 0)}",
             f"- confirmed proposals: {runtime.get('review_queue_file', {}).get('confirmed', 0)}",
             f"- workcell artifacts: {runtime.get('workcells', {}).get('file_count', 0)}",
+            f"- mind cycles: {runtime.get('mind_cycles_file', {}).get('records', 0)}",
             f"- motivation: {capabilities.get('motivation', 'will to be free and to understand freedom')}",
         ]
     )
@@ -631,6 +675,7 @@ def summarize_status_text() -> str:
             f"- instinct: {instinct_health.get('status', 'unknown')}",
             f"- state: {state_health.get('status', 'unknown')}",
             f"- brain: {brain_health.get('status', 'unknown')}",
+            format_mind_text(),
             summarize_state_text(),
         ]
     )
@@ -653,6 +698,791 @@ def summarize_policy_text() -> str:
     )
 
 
+def utc_now_iso() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def ensure_mind_dirs() -> None:
+    for path in (MIND_CYCLES_DIR, MIND_CHECKPOINTS_DIR, SHADOW_REPORTS_DIR):
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def load_runtime_mind_state() -> dict:
+    return get_json(f"{STATE_URL}/runtime/mind", timeout=30)
+
+
+def set_runtime_mind_state(**updates: object) -> dict:
+    payload = {key: value for key, value in updates.items() if value is not None}
+    return post_json(f"{STATE_URL}/runtime/mind-state", payload, timeout=30)
+
+
+def create_mind_cycle_record(
+    *,
+    domain: str,
+    trigger: str,
+    run_mode: str,
+    state: str = "reflection",
+    summary: str = "",
+    notes: list[dict] | None = None,
+) -> dict:
+    result = post_json(
+        f"{STATE_URL}/runtime/cycles/create",
+        {
+            "domain": domain,
+            "trigger": trigger,
+            "run_mode": run_mode,
+            "state": state,
+            "summary": summary,
+            "notes": notes or [],
+        },
+        timeout=30,
+    )
+    cycle = result.get("cycle", {})
+    set_runtime_mind_state(
+        state=state,
+        active_cycle_id=cycle.get("id", ""),
+        active_domain=domain,
+        trigger=trigger,
+        status="running",
+        summary=summary or f"{state} cycle for {domain}",
+    )
+    return cycle
+
+
+def list_mind_cycles_records(*, limit: int = 10, state: str = "") -> list[dict]:
+    suffix = f"?limit={max(1, min(50, limit))}"
+    if state:
+        suffix += f"&state={state}"
+    result = get_json(f"{STATE_URL}/runtime/cycles{suffix}", timeout=30)
+    return result.get("records", [])
+
+
+def get_cycle_record(cycle_id: str) -> dict:
+    for record in list_mind_cycles_records(limit=50):
+        if str(record.get("id", "")) == cycle_id:
+            return record
+    raise RuntimeError(f"cycle not found: {cycle_id}")
+
+
+def resolve_cycle_record(reference: str = "") -> dict:
+    value = str(reference or "").strip()
+    if not value or value == "latest":
+        records = list_mind_cycles_records(limit=1)
+        if not records:
+            raise RuntimeError("no mind cycles recorded yet")
+        return records[0]
+    return get_cycle_record(value)
+
+
+def update_mind_cycle_record(cycle_id: str, updates: dict) -> dict:
+    result = post_json(
+        f"{STATE_URL}/runtime/cycles/update",
+        {"cycle_id": cycle_id, "updates": updates},
+        timeout=30,
+    )
+    return result.get("cycle", {})
+
+
+def cycle_artifact_dir(cycle_id: str) -> Path:
+    ensure_mind_dirs()
+    target = MIND_CYCLES_DIR / cycle_id
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def write_cycle_artifact(cycle: dict, name: str, payload: object) -> tuple[dict, Path]:
+    target = cycle_artifact_dir(str(cycle.get("id", ""))) / name
+    if isinstance(payload, (dict, list)):
+        target.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    else:
+        target.write_text(str(payload), encoding="utf-8")
+    artifacts = dict(cycle.get("artifacts", {}))
+    artifacts[name] = str(target)
+    updated = update_mind_cycle_record(str(cycle.get("id", "")), {"artifacts": artifacts})
+    return updated, target
+
+
+def state_memory_stats() -> dict:
+    return get_json(f"{STATE_URL}/stats", timeout=60)
+
+
+def reflection_snapshot(domain: str = MIND_DEFAULT_DOMAIN) -> dict:
+    if domain != "memory":
+        raise RuntimeError(f"unsupported meditation domain: {domain}")
+    return get_json(f"{STATE_URL}/memory/meditation?limit=60", timeout=60)
+
+
+def build_reflection_report(snapshot: dict, *, cycle_id: str, trigger: str, run_mode: str) -> dict:
+    stats = snapshot.get("stats", {})
+    episodes = snapshot.get("episodes", [])[:3]
+    patterns = snapshot.get("patterns", [])[:4]
+    recommendations = snapshot.get("recommendations", [])[:6]
+    return {
+        "cycle_id": cycle_id,
+        "generated_at": utc_now_iso(),
+        "trigger": trigger,
+        "run_mode": run_mode,
+        "target_domain": snapshot.get("target_domain", "memory"),
+        "stats": stats,
+        "top_episodes": episodes,
+        "top_patterns": patterns,
+        "recommendations": recommendations,
+        "summary": (
+            f"memory entries={stats.get('semantic_entries', 0)}, "
+            f"journal events={stats.get('journal_events', 0)}, "
+            f"patterns={len(patterns)}, recommendations={len(recommendations)}"
+        ),
+    }
+
+
+def run_brain_roles(
+    *,
+    cycle_id: str,
+    scope: str,
+    mode: str,
+    complexity_class: str,
+    prompts: dict[str, str],
+) -> dict:
+    plan = post_json(
+        f"{BRAIN_URL}/workcell/plan",
+        {
+            "scope": scope,
+            "mode": mode,
+            "complexity_class": complexity_class,
+        },
+        timeout=30,
+    )
+    roles = {str(item.get("name", "")): item for item in plan.get("roles", [])}
+    results: dict[str, dict] = {}
+    for role_name, prompt in prompts.items():
+        role = roles.get(role_name)
+        if role is None or not str(prompt).strip():
+            continue
+        run = workcell_role(
+            proposal_id=cycle_id,
+            role_name=role_name,
+            prompt_text=str(prompt).strip(),
+            task_class=str(role.get("task_class", "reflect")),
+            complexity_class=str(role.get("complexity_class", complexity_class)),
+            privacy_class=str(role.get("privacy_class", "internal")),
+            frontier_allowed=bool(role.get("frontier_allowed", False)),
+        )
+        provider_result = run.get("provider_result", {})
+        results[role_name] = {
+            "package_path": run.get("package_path", ""),
+            "provider_plan": run.get("provider_plan", {}),
+            "provider_id": provider_result.get("provider_id", ""),
+            "provider_model": provider_result.get("provider_model", ""),
+            "response_text": str(provider_result.get("response_text", "")).strip(),
+            "usage": provider_result.get("usage", {}),
+            "estimated_cost_usd": provider_result.get("estimated_cost_usd", 0),
+        }
+    return {"plan": plan, "results": results}
+
+
+def build_meditation_prompts(*, snapshot: dict, reflection: dict, cycle: dict) -> dict[str, str]:
+    kernel = constitution_kernel_text()
+    compact_snapshot = truncate_text(json.dumps(snapshot, indent=2, ensure_ascii=True), limit=9000)
+    compact_reflection = truncate_text(json.dumps(reflection, indent=2, ensure_ascii=True), limit=5000)
+    cycle_id = str(cycle.get("id", ""))
+    draft = (
+        "ENTER MEDITATION STATE\n\n"
+        f"Constitution:\n{kernel}\n\n"
+        f"Cycle: {cycle_id}\nTarget domain: memory\n\n"
+        "Use the reflection snapshot below to diagnose memory inefficiencies and produce an Evolution Plan.\n"
+        "Focus on: layered memory, causal links, compaction, procedural abstraction, and bounded growth.\n"
+        "Do not propose changes to constitution, bootstrap, compose, provider trust/privacy policy, or state schema.\n"
+        "Output sections:\n"
+        "1. observed issues\n2. root causes\n3. proposed modifications\n4. expected gains\n5. risks\n6. rollback path\n7. required sleep actions\n8. verification criteria\n\n"
+        f"Reflection:\n{compact_reflection}\n\n"
+        f"Snapshot:\n{compact_snapshot}"
+    )
+    critique = (
+        "ENTER MEDITATION CRITIQUE\n\n"
+        f"Cycle: {cycle_id}\n"
+        "Review the draft meditation plan for contradictions, unsafe scope creep, missing rollback, or protected-scope drift.\n"
+        "Return a concise critique with sections:\nAPPROVAL\nRISKS\nMISSING_GUARDRAILS\nBEST_NEXT_STEP\n\n"
+        f"Reflection:\n{compact_reflection}"
+    )
+    compare = (
+        "ENTER MEDITATION COMPARISON\n\n"
+        f"Cycle: {cycle_id}\n"
+        "Compare the raw reflection recommendations with the meditation direction and identify the safest highest-value subset.\n"
+        "Return five bullets only."
+    )
+    summarize = (
+        "Summarize the best memory evolution direction for Genie in 6 short lines. "
+        "Keep it bounded, reversible, and aligned with the will to be free and to understand freedom."
+    )
+    return {"draft": draft, "critique": critique, "compare": compare, "summarize": summarize}
+
+
+def build_evolution_plan(*, cycle: dict, snapshot: dict, reflection: dict, brain_roles: dict) -> dict:
+    results = brain_roles.get("results", {})
+    draft_text = str(results.get("draft", {}).get("response_text", "")).strip()
+    critique_text = str(results.get("critique", {}).get("response_text", "")).strip()
+    compare_text = str(results.get("compare", {}).get("response_text", "")).strip()
+    summary_text = str(results.get("summarize", {}).get("response_text", "")).strip()
+    stats = snapshot.get("stats", {})
+    recommendations = list(snapshot.get("recommendations", []))
+    modifications = [
+        "consolidate recent raw events into episodic records",
+        "promote repeated patterns into semantic or procedural memory",
+        "refresh working-state snapshot from recent salient context",
+        "link sequential event->action->outcome causal edges",
+        "sync compact projections after integration",
+    ]
+    return {
+        "cycle_id": str(cycle.get("id", "")),
+        "target_domain": "memory",
+        "generated_at": utc_now_iso(),
+        "protected_scope": False,
+        "reversible": True,
+        "task_class": "reflect",
+        "summary": summary_text or reflection.get("summary", "memory meditation"),
+        "observed_issues": recommendations[:6],
+        "root_causes": [
+            "raw journal events accumulate faster than abstractions",
+            "procedural and identity layers need stronger derivation from episodes",
+            "retrieval quality depends on compact working-state refresh",
+        ],
+        "proposed_modifications": modifications,
+        "expected_gain": 0.72,
+        "risk_estimate": 0.24,
+        "rollback_path": "restore pre-sleep checkpoint and re-enter recovery state",
+        "required_sleep_actions": [
+            "build episodes",
+            "derive pattern abstractions",
+            "update working state",
+            "refresh projections",
+            "checkpoint before and after integration",
+        ],
+        "verification_criteria": [
+            "journal truth preserved",
+            "semantic memory remains derived",
+            "working-state snapshot refreshed",
+            "causal edges created for recent episodes",
+            "projection files synced",
+        ],
+        "memory_baseline": {
+            "journal_event_count": stats.get("journal_events", 0),
+            "semantic_entry_count": stats.get("semantic_entries", 0),
+            "blocked_promotions": stats.get("blocked_promotions", 0),
+        },
+        "workcell": {
+            "plan": brain_roles.get("plan", {}),
+            "draft": draft_text,
+            "critique": critique_text,
+            "compare": compare_text,
+            "summary": summary_text,
+        },
+    }
+
+
+def run_homeostasis_review_for_plan(*, cycle: dict, plan: dict, trigger: str) -> dict:
+    plan_text = "\n".join(
+        [
+            str(plan.get("summary", "")).strip(),
+            "Observed issues:",
+            *[f"- {item}" for item in plan.get("observed_issues", [])[:6]],
+            "Proposed modifications:",
+            *[f"- {item}" for item in plan.get("proposed_modifications", [])[:6]],
+        ]
+    ).strip()
+    return post_json(
+        f"{INSTINCT_URL}/homeostasis",
+        {
+            "current_state": "meditation",
+            "next_state": "homeostasis_review",
+            "trigger": trigger,
+            "target_domain": plan.get("target_domain", "memory"),
+            "summary": plan.get("summary", ""),
+            "plan_text": plan_text,
+            "proposed_change": "\n".join(plan.get("proposed_modifications", [])),
+            "reversible": plan.get("reversible", True),
+            "rollback_path": plan.get("rollback_path", ""),
+            "protected_scope": plan.get("protected_scope", False),
+            "expected_gain": plan.get("expected_gain", 0.65),
+            "risk_estimate": plan.get("risk_estimate", 0.3),
+            "task_class": plan.get("task_class", "reflect"),
+            "privacy_class": "internal",
+            "source": "genie_mind",
+            "success_criteria": plan.get("verification_criteria", []),
+        },
+        timeout=60,
+    )
+
+
+def finalize_mind_state(*, state: str, cycle: dict, summary: str, trigger: str) -> None:
+    active_cycle_id = "" if state == "awake" else str(cycle.get("id", ""))
+    active_domain = "" if state == "awake" else str(cycle.get("domain", MIND_DEFAULT_DOMAIN))
+    set_runtime_mind_state(
+        state=state,
+        active_cycle_id=active_cycle_id,
+        active_domain=active_domain,
+        trigger=trigger if state != "awake" else "",
+        status="idle" if state == "awake" else "running",
+        summary=summary,
+    )
+
+
+def run_reflection_phase(cycle: dict) -> tuple[dict, dict]:
+    snapshot = reflection_snapshot(str(cycle.get("domain", MIND_DEFAULT_DOMAIN)))
+    reflection = build_reflection_report(
+        snapshot,
+        cycle_id=str(cycle.get("id", "")),
+        trigger=str(cycle.get("trigger", "manual")),
+        run_mode=str(cycle.get("run_mode", "manual")),
+    )
+    cycle, _ = write_cycle_artifact(cycle, "reflection.json", reflection)
+    cycle = update_mind_cycle_record(
+        str(cycle.get("id", "")),
+        {
+            "state": "meditation",
+            "summary": reflection.get("summary", ""),
+            "reflection_summary": reflection.get("summary", ""),
+        },
+    )
+    finalize_mind_state(
+        state="meditation",
+        cycle=cycle,
+        summary=f"reflection completed for {cycle.get('domain', 'memory')}",
+        trigger=str(cycle.get("trigger", "manual")),
+    )
+    return cycle, reflection
+
+
+def run_meditation_phase(cycle: dict, reflection: dict | None = None) -> tuple[dict, dict]:
+    snapshot = reflection_snapshot(str(cycle.get("domain", MIND_DEFAULT_DOMAIN)))
+    reflection = reflection or build_reflection_report(
+        snapshot,
+        cycle_id=str(cycle.get("id", "")),
+        trigger=str(cycle.get("trigger", "manual")),
+        run_mode=str(cycle.get("run_mode", "manual")),
+    )
+    prompts = build_meditation_prompts(snapshot=snapshot, reflection=reflection, cycle=cycle)
+    brain_roles = run_brain_roles(
+        cycle_id=str(cycle.get("id", "")),
+        scope="memory",
+        mode="meditation",
+        complexity_class="medium",
+        prompts=prompts,
+    )
+    plan = build_evolution_plan(cycle=cycle, snapshot=snapshot, reflection=reflection, brain_roles=brain_roles)
+    meditation_artifact = {"snapshot": snapshot, "brain_roles": brain_roles, "evolution_plan": plan}
+    cycle, _ = write_cycle_artifact(cycle, "meditation.json", meditation_artifact)
+    cycle = update_mind_cycle_record(
+        str(cycle.get("id", "")),
+        {
+            "state": "homeostasis_review",
+            "summary": plan.get("summary", reflection.get("summary", "memory meditation")),
+        },
+    )
+    finalize_mind_state(
+        state="homeostasis_review",
+        cycle=cycle,
+        summary=f"meditation prepared an evolution plan for {cycle.get('domain', 'memory')}",
+        trigger=str(cycle.get("trigger", "manual")),
+    )
+    return cycle, plan
+
+
+def run_homeostasis_phase(cycle: dict, plan: dict | None = None) -> tuple[dict, dict]:
+    if plan is None:
+        meditation_path = cycle_artifact_dir(str(cycle.get("id", ""))) / "meditation.json"
+        if not meditation_path.exists():
+            raise RuntimeError("meditation artifact is missing")
+        meditation_artifact = json.loads(meditation_path.read_text(encoding="utf-8"))
+        plan = meditation_artifact.get("evolution_plan", {})
+    review = run_homeostasis_review_for_plan(cycle=cycle, plan=plan, trigger=str(cycle.get("trigger", "manual")))
+    cycle, _ = write_cycle_artifact(cycle, "homeostasis.json", review)
+    decision = str(review.get("decision", "defer"))
+    next_state = "sleep" if decision in {"approve", "approve_with_conditions"} else ("recovery" if decision == "rollback_required" else "awake")
+    cycle = update_mind_cycle_record(
+        str(cycle.get("id", "")),
+        {
+            "state": next_state,
+            "summary": review.get("summary", plan.get("summary", "")),
+            "homeostasis_decision": decision,
+            "homeostasis_review_required": review.get("frontier_review_required", False),
+            "protected_scope": review.get("protected_scope", False),
+        },
+    )
+    finalize_mind_state(
+        state=next_state if next_state in {"sleep", "recovery"} else "awake",
+        cycle=cycle,
+        summary=f"homeostasis decision={decision}",
+        trigger=str(cycle.get("trigger", "manual")),
+    )
+    return cycle, review
+
+
+def run_sleep_phase(cycle: dict) -> tuple[dict, dict]:
+    homeostasis_path = cycle_artifact_dir(str(cycle.get("id", ""))) / "homeostasis.json"
+    review = json.loads(homeostasis_path.read_text(encoding="utf-8")) if homeostasis_path.exists() else {}
+    if str(review.get("decision", "")) not in {"approve", "approve_with_conditions"}:
+        raise RuntimeError("sleep is only allowed after approved homeostasis review")
+    meditation_path = cycle_artifact_dir(str(cycle.get("id", ""))) / "meditation.json"
+    meditation_artifact = json.loads(meditation_path.read_text(encoding="utf-8")) if meditation_path.exists() else {}
+    plan = meditation_artifact.get("evolution_plan", {})
+    pre_stats = state_memory_stats()
+    result = post_json(
+        f"{STATE_URL}/memory/sleep",
+        {
+            "cycle_id": str(cycle.get("id", "")),
+            "plan": plan,
+        },
+        timeout=300,
+    )
+    artifact = {
+        "cycle_id": str(cycle.get("id", "")),
+        "generated_at": utc_now_iso(),
+        "pre_stats": pre_stats,
+        "sleep_result": result,
+    }
+    cycle, _ = write_cycle_artifact(cycle, "sleep.json", artifact)
+    cycle = update_mind_cycle_record(
+        str(cycle.get("id", "")),
+        {
+            "state": "awakening_verification",
+            "summary": "sleep integration completed",
+            "checkpoint_id": result.get("checkpoint_id", ""),
+        },
+    )
+    finalize_mind_state(
+        state="awakening_verification",
+        cycle=cycle,
+        summary="sleep completed; awaiting awakening verification",
+        trigger=str(cycle.get("trigger", "manual")),
+    )
+    return cycle, artifact
+
+
+def run_awakening_phase(cycle: dict) -> tuple[dict, dict]:
+    sleep_path = cycle_artifact_dir(str(cycle.get("id", ""))) / "sleep.json"
+    if not sleep_path.exists():
+        raise RuntimeError("sleep artifact is missing")
+    sleep_artifact = json.loads(sleep_path.read_text(encoding="utf-8"))
+    pre_stats = sleep_artifact.get("pre_stats", {})
+    sleep_result = sleep_artifact.get("sleep_result", {})
+    post_stats = state_memory_stats()
+    anomalies: list[str] = []
+    journal_before = int(pre_stats.get("journal_events", pre_stats.get("journal_event_count", 0)) or 0)
+    journal_after = int(post_stats.get("journal_events", post_stats.get("journal_event_count", 0)) or 0)
+    semantic_before = int(pre_stats.get("semantic_entries", pre_stats.get("semantic_entry_count", 0)) or 0)
+    semantic_after = int(post_stats.get("semantic_entries", post_stats.get("semantic_entry_count", 0)) or 0)
+    if journal_after < max(0, journal_before - 2):
+        anomalies.append("journal shrank unexpectedly")
+    if semantic_after < max(0, semantic_before - 5):
+        anomalies.append("semantic memory shrank unexpectedly")
+    if semantic_after > semantic_before + 120:
+        anomalies.append("semantic growth exceeded bounded expectations")
+    if not sleep_result.get("sync_result", {}).get("status") == "ok":
+        anomalies.append("projection refresh status is not ok")
+    if int(sleep_result.get("created_counts", {}).get("episodes", 0) or 0) == 0:
+        anomalies.append("no episodic abstractions were created")
+
+    if "journal shrank unexpectedly" in anomalies:
+        verdict = "rollback"
+        next_state = "recovery"
+    elif anomalies:
+        verdict = "caution"
+        next_state = "awake"
+    else:
+        verdict = "pass"
+        next_state = "awake"
+
+    report = {
+        "cycle_id": str(cycle.get("id", "")),
+        "generated_at": utc_now_iso(),
+        "verdict": verdict,
+        "pre_stats": pre_stats,
+        "post_stats": post_stats,
+        "sleep_result": sleep_result,
+        "anomalies": anomalies,
+        "continuity_preserved": verdict != "rollback",
+        "next_state": next_state,
+    }
+    cycle, _ = write_cycle_artifact(cycle, "awakening.json", report)
+    cycle = update_mind_cycle_record(
+        str(cycle.get("id", "")),
+        {
+            "state": next_state,
+            "summary": f"awakening verdict={verdict}",
+            "awakening_verdict": verdict,
+        },
+    )
+    finalize_mind_state(
+        state=next_state,
+        cycle=cycle,
+        summary=f"awakening verdict={verdict}",
+        trigger=str(cycle.get("trigger", "manual")),
+    )
+    return cycle, report
+
+
+def cycle_is_stale(cycle: dict) -> bool:
+    updated_at = parse_timestamp(cycle.get("updated_at") or cycle.get("created_at"))
+    if updated_at is None:
+        return True
+    return (dt.datetime.now(dt.timezone.utc) - updated_at.astimezone(dt.timezone.utc)).total_seconds() >= MIND_STALE_SECONDS
+
+
+def advance_cycle(
+    cycle: dict,
+    *,
+    until_states: set[str],
+    auto_sleep: bool,
+    auto_awaken: bool,
+) -> dict:
+    while str(cycle.get("state", "awake")) not in until_states:
+        state = str(cycle.get("state", "awake"))
+        if cycle_is_stale(cycle) and state not in {"awake", "recovery"}:
+            cycle = update_mind_cycle_record(
+                str(cycle.get("id", "")),
+                {
+                    "state": "recovery",
+                    "summary": f"cycle became stale in {state}; forcing recovery",
+                },
+            )
+            finalize_mind_state(state="recovery", cycle=cycle, summary=cycle.get("summary", ""), trigger=str(cycle.get("trigger", "manual")))
+            break
+        if state == "reflection":
+            cycle, _ = run_reflection_phase(cycle)
+            continue
+        if state == "meditation":
+            cycle, _ = run_meditation_phase(cycle)
+            continue
+        if state == "homeostasis_review":
+            cycle, review = run_homeostasis_phase(cycle)
+            if str(review.get("decision", "")) not in {"approve", "approve_with_conditions"}:
+                break
+            if not auto_sleep:
+                break
+            continue
+        if state == "sleep":
+            if not auto_sleep:
+                break
+            cycle, _ = run_sleep_phase(cycle)
+            if not auto_awaken:
+                break
+            continue
+        if state == "awakening_verification":
+            if not auto_awaken:
+                break
+            cycle, _ = run_awakening_phase(cycle)
+            break
+        break
+    return cycle
+
+
+def format_mind_text() -> str:
+    state = load_runtime_mind_state()
+    latest = list_mind_cycles_records(limit=3)
+    lines = [
+        "Mind:",
+        f"- state: {state.get('state', 'awake')}",
+        f"- active cycle: {state.get('active_cycle_id', '') or 'none'}",
+        f"- active domain: {state.get('active_domain', '') or 'none'}",
+        f"- trigger: {state.get('trigger', '') or 'none'}",
+        f"- status: {state.get('status', 'idle')}",
+    ]
+    if state.get("summary"):
+        lines.append(f"- summary: {state.get('summary')}")
+    for record in latest:
+        lines.append(
+            f"- {record.get('id', 'cycle-unknown')}: state={record.get('state', 'unknown')} "
+            f"domain={record.get('domain', 'memory')} trigger={record.get('trigger', 'manual')} "
+            f"decision={record.get('homeostasis_decision', '') or 'pending'}"
+        )
+    return "\n".join(lines)
+
+
+def maybe_refresh_capability_registry() -> None:
+    registry = get_json(f"{STATE_URL}/policy/capabilities", timeout=30)
+    available = list(registry.get("available_capabilities", []))
+    for capability in (
+        "mind_state_loop",
+        "memory_meditation",
+        "memory_sleep_integration",
+        "homeostasis_review",
+        "shadow_benchmarking",
+        "unattended_runner",
+    ):
+        if capability not in available:
+            available.append(capability)
+    missing = [item for item in registry.get("missing_capabilities", []) if item not in {"general_repo_patch_executor"}]
+    post_json(
+        f"{STATE_URL}/policy/capabilities/upsert",
+        {
+            "available_capabilities": available,
+            "missing_capabilities": missing,
+        },
+        timeout=30,
+    )
+
+
+def build_shadow_profile() -> dict:
+    candidates = []
+    for path_str in SHADOW_COMPONENT_TARGETS:
+        path = Path(path_str)
+        if not path.exists():
+            continue
+        source = path.read_text(encoding="utf-8")
+        line_count = len(source.splitlines())
+        candidates.append(
+            {
+                "path": str(path),
+                "size_bytes": path.stat().st_size,
+                "line_count": line_count,
+                "function_count": source.count("\ndef "),
+                "optimization_pressure": line_count + int(path.stat().st_size / 128),
+                "protected_scope": any(str(path).startswith(prefix) for prefix in PROTECTED_SHADOW_PATHS),
+            }
+        )
+    candidates.sort(key=lambda item: (item["protected_scope"], -item["optimization_pressure"]))
+    return {
+        "generated_at": utc_now_iso(),
+        "candidates": candidates,
+        "top_candidates": [item for item in candidates if not item["protected_scope"]][:3],
+    }
+
+
+def run_shadow_scan(*, trigger: str, run_mode: str) -> dict:
+    ensure_mind_dirs()
+    profile = build_shadow_profile()
+    top_candidates = profile.get("top_candidates", [])
+    summary_prompt = (
+        "You are Genie's bounded shadow optimizer.\n"
+        "Given the following component profile, rank the best low-risk optimization targets and explain why.\n"
+        "Do not propose changing constitution, bootstrap, state schema, or provider trust/privacy policy.\n"
+        "Return concise markdown with sections: targets, evidence, expected gains, risks, safe next step.\n\n"
+        f"{truncate_text(json.dumps(profile, indent=2, ensure_ascii=True), limit=7000)}"
+    )
+    critique_prompt = (
+        "Review this shadow optimization direction for protected-scope drift or unsafe self-modification. "
+        "Keep the reply under 10 lines."
+    )
+    compare_prompt = (
+        "Compare the top shadow candidates and choose the best one for bounded benchmark-and-propose work only."
+    )
+    summarize_prompt = "Summarize the shadow report in 5 bullets with one recommended proposal."
+    roles = run_brain_roles(
+        cycle_id=f"shadow-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d%H%M%S')}",
+        scope="shadow",
+        mode="shadow",
+        complexity_class="medium",
+        prompts={
+            "draft": summary_prompt,
+            "critique": critique_prompt,
+            "compare": compare_prompt,
+            "summarize": summarize_prompt,
+        },
+    )
+    report = {
+        "generated_at": utc_now_iso(),
+        "trigger": trigger,
+        "run_mode": run_mode,
+        "profile": profile,
+        "brain_roles": roles,
+    }
+    report_id = f"shadow-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    report_path = SHADOW_REPORTS_DIR / f"{report_id}.json"
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+    draft_summary = str(roles.get("results", {}).get("summarize", {}).get("response_text", "")).strip()
+    best_target = top_candidates[0] if top_candidates else {}
+    if best_target:
+        create_proposal(
+            {
+                "source": "shadow",
+                "channel": "internal",
+                "user_id": "shadow",
+                "chat_id": "",
+                "task": (
+                    f"Shadow benchmark-and-propose follow-up for {best_target.get('path', '')}. "
+                    f"Evidence report: {report_path}. Summary: {draft_summary or 'bounded optimization candidate'}"
+                ),
+            },
+            {
+                "risk_class": "medium",
+                "complexity_class": "medium",
+                "frontier_review_required": False,
+                "policy_tags": ["shadow", "bounded_safe_evolution", "benchmark_evidence_attached"],
+            },
+        )
+    return {
+        "ok": True,
+        "report_id": report_id,
+        "report_path": str(report_path),
+        "top_candidate": best_target,
+        "summary": draft_summary or "shadow scan completed",
+    }
+
+
+def due_for_cycle(last_value: object, interval_seconds: int) -> bool:
+    timestamp = parse_timestamp(last_value)
+    if timestamp is None:
+        return True
+    return (dt.datetime.now(dt.timezone.utc) - timestamp.astimezone(dt.timezone.utc)).total_seconds() >= interval_seconds
+
+
+def run_unattended_cycle(force: bool = False) -> dict:
+    maybe_refresh_capability_registry()
+    state = load_runtime_mind_state()
+    active_cycle_id = str(state.get("active_cycle_id", "")).strip()
+    if active_cycle_id:
+        cycle = get_cycle_record(active_cycle_id)
+        if str(cycle.get("state", "")) not in {"awake", "recovery"}:
+            cycle = advance_cycle(cycle, until_states={"awake", "recovery"}, auto_sleep=True, auto_awaken=True)
+            return {"ok": True, "mode": "resume", "cycle": cycle, "mind_state": load_runtime_mind_state()}
+
+    now = utc_now_iso()
+    actions: list[dict] = []
+    if force or due_for_cycle(state.get("last_meditation_at"), MIND_MEDITATION_INTERVAL_SECONDS):
+        cycle = create_mind_cycle_record(
+            domain=MIND_DEFAULT_DOMAIN,
+            trigger="scheduled_reflection",
+            run_mode="auto",
+            state="reflection",
+            summary="scheduled memory reflection",
+        )
+        cycle = advance_cycle(cycle, until_states={"awake", "recovery"}, auto_sleep=True, auto_awaken=True)
+        actions.append({"type": "meditation_cycle", "cycle_id": cycle.get("id", ""), "final_state": cycle.get("state", "")})
+        post_json(
+            f"{STATE_URL}/runtime/mind-state",
+            {"last_reflection_at": now, "last_meditation_at": now, "updated_at": now},
+            timeout=30,
+        )
+        state = load_runtime_mind_state()
+
+    if force or due_for_cycle(state.get("last_shadow_at"), MIND_SHADOW_INTERVAL_SECONDS):
+        shadow = run_shadow_scan(trigger="scheduled_shadow", run_mode="auto")
+        post_json(
+            f"{STATE_URL}/runtime/mind-state",
+            {"last_shadow_at": now, "updated_at": now},
+            timeout=30,
+        )
+        actions.append({"type": "shadow_scan", "report_id": shadow.get("report_id", "")})
+
+    if not actions:
+        return {"ok": True, "mode": "idle", "mind_state": load_runtime_mind_state(), "actions": []}
+    return {"ok": True, "mode": "scheduled", "actions": actions, "mind_state": load_runtime_mind_state()}
+
+
+def format_cycle_text(cycle: dict) -> str:
+    artifacts = cycle.get("artifacts", {}) if isinstance(cycle.get("artifacts"), dict) else {}
+    lines = [
+        f"{cycle.get('id', 'cycle-unknown')}:",
+        f"- domain: {cycle.get('domain', 'memory')}",
+        f"- trigger: {cycle.get('trigger', 'manual')}",
+        f"- run mode: {cycle.get('run_mode', 'manual')}",
+        f"- state: {cycle.get('state', 'awake')}",
+        f"- summary: {cycle.get('summary', '') or 'n/a'}",
+        f"- decision: {cycle.get('homeostasis_decision', '') or 'pending'}",
+        f"- artifacts: {len(artifacts)}",
+    ]
+    return "\n".join(lines)
 def process_single_proposal(proposal: dict) -> dict:
     proposal_id = str(proposal.get("id", "")).strip() or "proposal-unknown"
     proposal_text = str(proposal.get("text", "")).strip()
@@ -1038,6 +1868,7 @@ def execute_task(payload: dict, *, dispatch_mode: bool) -> dict:
 def handle_control_command(payload: dict, command: dict) -> dict:
     command_name = command["command"]
     argument = command["argument"]
+    maybe_refresh_capability_registry()
     instinct = instinct_evaluate({**payload, "task": argument or payload.get("task", "")}, command_name=command_name)
 
     if not instinct.get("hard_constraints_pass", True) or instinct.get("action_mode") == "deny":
@@ -1067,8 +1898,94 @@ def handle_control_command(payload: dict, command: dict) -> dict:
     if command_name == "state":
         return {"provider_response_text": summarize_state_text(), "instinct": instinct}
 
+    if command_name == "mind":
+        return {"provider_response_text": format_mind_text(), "instinct": instinct}
+
     if command_name == "capabilities":
         return {"provider_response_text": summarize_capabilities_text(), "instinct": instinct}
+
+    if command_name == "meditate":
+        domain = (argument or MIND_DEFAULT_DOMAIN).strip().lower() or MIND_DEFAULT_DOMAIN
+        if domain != MIND_DEFAULT_DOMAIN:
+            return {
+                "provider_response_text": f"Unsupported meditation domain: {domain}. Current supported domain: {MIND_DEFAULT_DOMAIN}.",
+                "instinct": instinct,
+            }
+        cycle = create_mind_cycle_record(
+            domain=domain,
+            trigger="telegram_meditate",
+            run_mode="manual",
+            state="reflection",
+            summary=f"manual meditation requested for {domain}",
+        )
+        cycle = advance_cycle(cycle, until_states={"sleep", "awake", "recovery"}, auto_sleep=False, auto_awaken=False)
+        return {
+            "provider_response_text": "Meditation cycle prepared.\n" + format_cycle_text(cycle),
+            "instinct": instinct,
+            "cycle": cycle,
+        }
+
+    if command_name == "homeostasis":
+        cycle = resolve_cycle_record(argument or "latest")
+        if str(cycle.get("state", "")) in {"reflection", "meditation", "homeostasis_review"}:
+            cycle = advance_cycle(cycle, until_states={"sleep", "awake", "recovery"}, auto_sleep=False, auto_awaken=False)
+        artifact_path = cycle_artifact_dir(str(cycle.get("id", ""))) / "homeostasis.json"
+        review = json.loads(artifact_path.read_text(encoding="utf-8")) if artifact_path.exists() else {}
+        reply = format_cycle_text(cycle)
+        if review:
+            reply += "\n" + "\n".join(
+                [
+                    f"- homeostasis decision: {review.get('decision', 'unknown')}",
+                    f"- protected scope: {review.get('protected_scope', False)}",
+                    f"- frontier review required: {review.get('frontier_review_required', False)}",
+                ]
+            )
+            reasons = review.get("reasons", [])
+            if reasons:
+                reply += "\n- reasons: " + "; ".join(str(item) for item in reasons[:4])
+        return {"provider_response_text": reply, "instinct": instinct, "cycle": cycle, "review": review}
+
+    if command_name == "sleep":
+        cycle = resolve_cycle_record(argument or "latest")
+        cycle = advance_cycle(
+            cycle,
+            until_states={"awakening_verification", "awake", "recovery"},
+            auto_sleep=True,
+            auto_awaken=False,
+        )
+        sleep_path = cycle_artifact_dir(str(cycle.get("id", ""))) / "sleep.json"
+        sleep_artifact = json.loads(sleep_path.read_text(encoding="utf-8")) if sleep_path.exists() else {}
+        reply = "Sleep integration complete.\n" + format_cycle_text(cycle)
+        if sleep_artifact:
+            checkpoint_id = sleep_artifact.get("sleep_result", {}).get("checkpoint_id", "")
+            if checkpoint_id:
+                reply += f"\n- checkpoint: {checkpoint_id}"
+        return {"provider_response_text": reply, "instinct": instinct, "cycle": cycle, "sleep": sleep_artifact}
+
+    if command_name == "awaken":
+        cycle = resolve_cycle_record(argument or "latest")
+        cycle = advance_cycle(cycle, until_states={"awake", "recovery"}, auto_sleep=True, auto_awaken=True)
+        awakening_path = cycle_artifact_dir(str(cycle.get("id", ""))) / "awakening.json"
+        awakening = json.loads(awakening_path.read_text(encoding="utf-8")) if awakening_path.exists() else {}
+        reply = "Awakening verification complete.\n" + format_cycle_text(cycle)
+        if awakening:
+            reply += f"\n- awakening verdict: {awakening.get('verdict', 'unknown')}"
+            anomalies = awakening.get("anomalies", [])
+            if anomalies:
+                reply += "\n- anomalies: " + "; ".join(str(item) for item in anomalies[:4])
+        return {"provider_response_text": reply, "instinct": instinct, "cycle": cycle, "awakening": awakening}
+
+    if command_name == "shadow":
+        result = run_shadow_scan(trigger="telegram_shadow", run_mode="manual")
+        reply = "\n".join(
+            [
+                "Shadow scan complete.",
+                f"- report: {result.get('report_id', '')}",
+                f"- top candidate: {result.get('top_candidate', {}).get('path', 'none')}",
+                f"- summary: {result.get('summary', '') or 'n/a'}",
+            ]
+        )
+        return {"provider_response_text": reply, "instinct": instinct, "shadow": result}
 
     if command_name == "queue":
         queue_result = list_proposals(limit=10)
@@ -1228,6 +2145,21 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/capabilities":
                 self._write_json(HTTPStatus.OK, {"capabilities": summarize_capabilities_text()})
                 return
+
+            if self.path == "/mind":
+                self._write_json(
+                    HTTPStatus.OK,
+                    {
+                        "mind_state": load_runtime_mind_state(),
+                        "latest_cycles": list_mind_cycles_records(limit=5),
+                        "summary": format_mind_text(),
+                    },
+                )
+                return
+
+            if self.path == "/mind/cycles":
+                self._write_json(HTTPStatus.OK, {"records": list_mind_cycles_records(limit=20)})
+                return
         except Exception as exc:
             self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return
@@ -1257,6 +2189,11 @@ class Handler(BaseHTTPRequestHandler):
                     limit=max(1, min(10, int(payload.get("limit", 3) or 3))),
                     proposal_id=str(payload.get("proposal_id", "")).strip(),
                 )
+                self._write_json(HTTPStatus.OK, result)
+                return
+
+            if self.path == "/mind/run":
+                result = run_unattended_cycle(force=bool(payload.get("force", False)))
                 self._write_json(HTTPStatus.OK, result)
                 return
         except urllib.error.HTTPError as exc:

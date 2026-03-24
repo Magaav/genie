@@ -19,20 +19,34 @@ PORT = int(os.environ.get("GENIE_BRAIN_PORT", "18793"))
 
 def normalize_workcell_scope(value: object) -> str:
     scope = str(value or "").strip().lower()
-    if scope in {"docs", "tests", "draft_only"}:
+    if scope in {"docs", "tests", "draft_only", "memory", "shadow"}:
         return scope
     return "draft_only"
 
 
-def workcell_plan(scope: str, complexity_class: str = "") -> dict:
+def normalize_workcell_mode(value: object) -> str:
+    mode = str(value or "").strip().lower()
+    if mode in {"proposal", "meditation", "shadow"}:
+        return mode
+    return "proposal"
+
+
+def workcell_plan(scope: str, complexity_class: str = "", mode: str = "") -> dict:
     resolved_scope = normalize_workcell_scope(scope)
     resolved_complexity = provider_router.normalize_complexity_class(complexity_class) or "medium"
-    draft_task_class = {
-        "docs": "chat",
-        "tests": "chat",
-        "draft_only": "reflect",
-    }[resolved_scope]
-    critique_task_class = "reflect"
+    resolved_mode = normalize_workcell_mode(mode)
+    if resolved_mode in {"meditation", "shadow"}:
+        draft_task_class = "chat"
+        critique_task_class = "chat"
+    else:
+        draft_task_class = {
+            "docs": "chat",
+            "tests": "chat",
+            "draft_only": "reflect",
+            "memory": "reflect",
+            "shadow": "reflect",
+        }[resolved_scope]
+        critique_task_class = "reflect"
     roles = [
         {
             "name": "draft",
@@ -49,8 +63,28 @@ def workcell_plan(scope: str, complexity_class: str = "") -> dict:
             "privacy_class": "internal",
         },
     ]
+    if resolved_mode in {"meditation", "shadow"}:
+        roles.extend(
+            [
+                {
+                    "name": "compare",
+                    "task_class": "summarize",
+                    "complexity_class": resolved_complexity,
+                    "frontier_allowed": False,
+                    "privacy_class": "internal",
+                },
+                {
+                    "name": "summarize",
+                    "task_class": "summarize",
+                    "complexity_class": "low" if resolved_complexity == "medium" else resolved_complexity,
+                    "frontier_allowed": False,
+                    "privacy_class": "internal",
+                },
+            ]
+        )
     return {
         "scope": resolved_scope,
+        "mode": resolved_mode,
         "complexity_class": resolved_complexity,
         "roles": roles,
     }
@@ -177,6 +211,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = workcell_plan(
                     str(payload.get("scope", "")),
                     complexity_class=str(payload.get("complexity_class", "")),
+                    mode=str(payload.get("mode", "")),
                 )
                 self._write_json(HTTPStatus.OK, result)
                 return

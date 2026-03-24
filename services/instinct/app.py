@@ -62,6 +62,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
                 return
 
+        if self.path == "/homeostasis":
+            try:
+                self._write_json(HTTPStatus.OK, engine.homeostasis_review(payload))
+                return
+            except Exception as exc:
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+                return
+
+        if self.path == "/transition":
+            try:
+                self._write_json(HTTPStatus.OK, engine.transition_legitimacy(payload))
+                return
+            except Exception as exc:
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+                return
+
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
 

@@ -93,6 +93,8 @@ It owns:
 - policy-aware execution mediation
 - calling `state` for context
 - calling `brain` for provider selection and remote execution
+- unattended mind-cycle orchestration
+- `shadow` benchmark-and-propose passes
 
 ### `instinct`
 
@@ -103,6 +105,7 @@ It owns:
 - hard constraint checks
 - human-affinity evaluation
 - risk and complexity classification
+- `homeostasis` review for self-change
 - proposal-only gating for high-impact evolution work
 - bounded Telegram control-plane policy
 
@@ -169,7 +172,7 @@ State domains inside `/local/state/genie`:
 - `telemetry`
   - provider health, benchmarks, scorecards, discovery, and usage ledgers
 - `runtime`
-  - generated prompt packages, saved provider responses, control logs, proposal queues, workcell artifacts, and frontier runtime state
+  - generated prompt packages, saved provider responses, control logs, proposal queues, workcell artifacts, mind-state/cycle artifacts, checkpoints, shadow reports, and frontier runtime state
 
 Generated safe outputs live under:
 
@@ -187,9 +190,15 @@ Current command verbs:
 - `/policy`
 - `/brain`
 - `/state`
+- `/mind`
 - `/capabilities`
 - `/backup`
 - `/run-checks`
+- `/meditate <domain>`
+- `/homeostasis <cycle-id|latest>`
+- `/sleep <cycle-id|latest>`
+- `/awaken <cycle-id|latest>`
+- `/shadow`
 - `/propose <change request>`
 - `/queue`
 - `/confirm <proposal-id>`
@@ -198,6 +207,7 @@ Current command verbs:
 Safe commands run directly.
 High-impact evolution requests become proposals so Genie can keep moving without drifting when frontier access is scarce.
 Confirmed low-risk proposals can be processed by a bounded workcell path that only auto-applies into generated docs/tests scopes.
+Mind-cycle commands expose the unattended reflection -> meditation -> homeostasis -> sleep -> awakening loop without turning Telegram into raw shell access.
 
 ## Memory Layout
 
@@ -223,6 +233,31 @@ Brain Router state lives in:
 - `/local/state/genie/policy/provider-registry.json`
 - `/local/state/genie/telemetry/provider-health.json`
 - `/local/state/genie/telemetry/provider-benchmarks.json`
+
+## Unattended Evolution
+
+Genie now runs a bounded unattended inner loop:
+
+- `reflection`
+- `meditation`
+- `homeostasis_review`
+- `sleep`
+- `awakening_verification`
+
+Runtime artifacts live in:
+
+- `/local/state/genie/runtime/mind-state.json`
+- `/local/state/genie/runtime/mind-cycles.jsonl`
+- `/local/state/genie/runtime/cycles`
+- `/local/state/genie/runtime/checkpoints`
+- `/local/state/genie/runtime/shadow-reports`
+
+The root cron schedule now maintains:
+
+- hourly and daily backups
+- provider heartbeat, evaluation, scorecards, and discovery
+- workcell queue processing
+- unattended mind runs every 20 minutes
 - `/local/state/genie/telemetry/provider-scorecards.json`
 - `/local/state/genie/telemetry/provider-discovery.json`
 - `/local/state/genie/telemetry/provider-usage.jsonl`

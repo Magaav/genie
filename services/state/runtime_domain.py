@@ -5,14 +5,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 
-from common import STATE_LAYOUT, directory_summary, file_summary
+from common import STATE_LAYOUT, directory_summary, file_summary, read_json_file, write_json_file
 
 
 def summary() -> dict:
     runtime_dir = STATE_LAYOUT["runtime_dir"]
     queue_file = STATE_LAYOUT["runtime_review_queue_file"]
     control_log_file = STATE_LAYOUT["runtime_control_log_file"]
+    mind_state_file = STATE_LAYOUT["runtime_mind_state_file"]
+    mind_cycles_file = STATE_LAYOUT["runtime_mind_cycles_file"]
     proposals = _read_jsonl(queue_file)
+    mind_cycles = _read_jsonl(mind_cycles_file)
     return {
         "domain": "runtime",
         "dir": str(runtime_dir),
@@ -21,6 +24,25 @@ def summary() -> dict:
         "bridge": directory_summary(STATE_LAYOUT["runtime_bridge_dir"], recent_limit=3),
         "frontier": directory_summary(STATE_LAYOUT["runtime_frontier_dir"], recent_limit=3),
         "workcells": directory_summary(STATE_LAYOUT["runtime_workcells_dir"], recent_limit=5),
+        "cycles": directory_summary(STATE_LAYOUT["runtime_cycles_dir"], recent_limit=5),
+        "checkpoints": directory_summary(STATE_LAYOUT["runtime_checkpoints_dir"], recent_limit=5),
+        "shadow_reports": directory_summary(STATE_LAYOUT["runtime_shadow_reports_dir"], recent_limit=5),
+        "mind_state": {
+            **file_summary(mind_state_file),
+            "state": load_mind_state().get("state", "awake"),
+            "active_cycle_id": load_mind_state().get("active_cycle_id", ""),
+            "active_domain": load_mind_state().get("active_domain", ""),
+            "trigger": load_mind_state().get("trigger", ""),
+            "last_reflection_at": load_mind_state().get("last_reflection_at"),
+            "last_meditation_at": load_mind_state().get("last_meditation_at"),
+            "last_shadow_at": load_mind_state().get("last_shadow_at"),
+        },
+        "mind_cycles_file": {
+            **file_summary(mind_cycles_file),
+            "records": len(mind_cycles),
+            "state_counts": _count_records(mind_cycles, "state"),
+            "decision_counts": _count_records(mind_cycles, "homeostasis_decision"),
+        },
         "review_queue_file": {
             **file_summary(queue_file),
             "records": len(proposals),
@@ -76,6 +98,124 @@ def _next_id(prefix: str, records: list[dict]) -> str:
         except ValueError:
             continue
     return f"{prefix}-{max_value + 1:06d}"
+
+
+def _count_records(records: list[dict], field: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for record in records:
+        key = str(record.get(field, "") or "unknown")
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def default_mind_state() -> dict:
+    return {
+        "state": "awake",
+        "active_cycle_id": "",
+        "active_domain": "",
+        "trigger": "",
+        "status": "idle",
+        "summary": "",
+        "last_reflection_at": None,
+        "last_meditation_at": None,
+        "last_shadow_at": None,
+        "last_transition_at": None,
+        "updated_at": None,
+    }
+
+
+def load_mind_state() -> dict:
+    path = STATE_LAYOUT["runtime_mind_state_file"]
+    payload = read_json_file(path, {})
+    if not isinstance(payload, dict) or not payload:
+        payload = default_mind_state()
+        write_json_file(path, payload)
+    return payload
+
+
+def set_mind_state(payload: dict) -> dict:
+    path = STATE_LAYOUT["runtime_mind_state_file"]
+    current = load_mind_state()
+    for field in (
+        "state",
+        "active_cycle_id",
+        "active_domain",
+        "trigger",
+        "status",
+        "summary",
+        "last_reflection_at",
+        "last_meditation_at",
+        "last_shadow_at",
+    ):
+        if field in payload:
+            current[field] = payload.get(field, current.get(field, ""))
+    now = _utc_now()
+    current["last_transition_at"] = payload.get("last_transition_at") or now
+    current["updated_at"] = payload.get("updated_at") or now
+    write_json_file(path, current)
+    return {"ok": True, "mind_state": current, "path": str(path)}
+
+
+def create_mind_cycle(payload: dict) -> dict:
+    cycles_file = STATE_LAYOUT["runtime_mind_cycles_file"]
+    records = _read_jsonl(cycles_file)
+    cycle_id = _next_id("cycle", records)
+    cycle = {
+        "id": cycle_id,
+        "created_at": _utc_now(),
+        "updated_at": _utc_now(),
+        "domain": str(payload.get("domain", "memory")).strip() or "memory",
+        "trigger": str(payload.get("trigger", "manual")).strip() or "manual",
+        "run_mode": str(payload.get("run_mode", "manual")).strip() or "manual",
+        "state": str(payload.get("state", "reflection")).strip() or "reflection",
+        "homeostasis_decision": str(payload.get("homeostasis_decision", "")).strip(),
+        "summary": str(payload.get("summary", "")).strip(),
+        "artifact_dir": str((STATE_LAYOUT["runtime_cycles_dir"] / cycle_id)),
+        "notes": payload.get("notes", []),
+    }
+    records.append(cycle)
+    _write_jsonl(cycles_file, records)
+    return {"ok": True, "cycle": cycle, "cycles_file": str(cycles_file)}
+
+
+def list_mind_cycles(payload: dict) -> dict:
+    cycles_file = STATE_LAYOUT["runtime_mind_cycles_file"]
+    records = _read_jsonl(cycles_file)
+    limit = max(1, min(50, int(payload.get("limit", 10) or 10)))
+    state_filter = str(payload.get("state", "")).strip().lower()
+    if state_filter:
+        records = [record for record in records if str(record.get("state", "")).strip().lower() == state_filter]
+    records.sort(key=lambda item: str(item.get("updated_at", item.get("created_at", ""))), reverse=True)
+    return {
+        "ok": True,
+        "cycles_file": str(cycles_file),
+        "records": records[:limit],
+        "total": len(records),
+    }
+
+
+def update_mind_cycle(payload: dict) -> dict:
+    cycle_id = str(payload.get("cycle_id", "")).strip()
+    if not cycle_id:
+        raise ValueError("cycle_id is required")
+    updates = payload.get("updates", {})
+    if not isinstance(updates, dict) or not updates:
+        raise ValueError("updates is required")
+    cycles_file = STATE_LAYOUT["runtime_mind_cycles_file"]
+    records = _read_jsonl(cycles_file)
+    updated_record = None
+    for record in records:
+        if str(record.get("id", "")) != cycle_id:
+            continue
+        for key, value in updates.items():
+            record[key] = value
+        record["updated_at"] = _utc_now()
+        updated_record = record
+        break
+    if updated_record is None:
+        raise ValueError(f"cycle not found: {cycle_id}")
+    _write_jsonl(cycles_file, records)
+    return {"ok": True, "cycle": updated_record, "cycles_file": str(cycles_file)}
 
 
 def create_proposal(payload: dict) -> dict:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -168,6 +169,22 @@ def initialize_db(conn: sqlite3.Connection) -> None:
           ON journal_events(created_at DESC);
         CREATE INDEX IF NOT EXISTS journal_events_channel_idx
           ON journal_events(channel);
+
+        CREATE TABLE IF NOT EXISTS causal_edges (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            relation TEXT NOT NULL DEFAULT 'followed_by',
+            source_event_id TEXT NOT NULL,
+            target_event_id TEXT NOT NULL,
+            session_id TEXT NOT NULL DEFAULT '',
+            channel TEXT NOT NULL DEFAULT '',
+            metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE INDEX IF NOT EXISTS causal_edges_source_idx
+          ON causal_edges(source_event_id);
+        CREATE INDEX IF NOT EXISTS causal_edges_target_idx
+          ON causal_edges(target_event_id);
         """
     )
     ensure_schema_migrations(conn)
@@ -551,6 +568,212 @@ def next_memory_id(conn: sqlite3.Connection) -> str:
 
 def next_event_id() -> str:
     return f"evt-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
+
+
+def stable_id(prefix: str, *parts: Any) -> str:
+    payload = "|".join(str(part) for part in parts if str(part))
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+    return f"{prefix}-{digest}"
+
+
+def parse_iso_timestamp(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def journal_row_to_event(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "created_at": row["created_at"],
+        "channel": row["channel"],
+        "session_id": row["session_id"],
+        "role": row["role"],
+        "user_id": row["user_id"],
+        "kind": row["kind"],
+        "source": row["source"],
+        "tags": load_json_field(row["tags_json"], []),
+        "trust_class": row["trust_class"],
+        "privacy_class": row["privacy_class"],
+        "source_type": row["source_type"],
+        "source_id": row["source_id"],
+        "source_provider": row["source_provider"],
+        "source_model": row["source_model"],
+        "verification_status": row["verification_status"],
+        "operator_confirmed": bool(row["operator_confirmed"]),
+        "policy_tags": load_json_field(row["policy_tags_json"], []),
+        "text": row["text"],
+        "metadata": load_json_field(row["metadata_json"], {}),
+        "derived_entry_id": row["derived_entry_id"],
+        "promotion_blocked": bool(row["promotion_blocked"]),
+        "promotion_reason": row["promotion_reason"],
+    }
+
+
+def memory_layer_for_kind(kind: str) -> str:
+    normalized = str(kind or "").strip().lower()
+    if normalized in {"working_state"}:
+        return "working"
+    if normalized in {"episode"}:
+        return "episodic"
+    if normalized in {"procedure"}:
+        return "procedural"
+    if normalized in {"identity", "continuity", "value"}:
+        return "identity"
+    return "semantic"
+
+
+def build_episode_summary(events: list[dict[str, Any]]) -> str:
+    texts = [normalize_single_line(event.get("text", ""), limit=120) for event in events if event.get("text")]
+    if not texts:
+        return "No meaningful events captured."
+    first = texts[0]
+    last = texts[-1]
+    if len(texts) == 1:
+        return first
+    return f"{first} -> {last}"
+
+
+def group_events_into_episodes(events: list[dict[str, Any]], max_gap_minutes: int = 30) -> list[dict[str, Any]]:
+    if not events:
+        return []
+
+    sorted_events = sorted(events, key=lambda item: (item.get("created_at", ""), item.get("id", "")))
+    episodes: list[dict[str, Any]] = []
+    current: list[dict[str, Any]] = []
+    current_key = ("", "")
+    previous_time: datetime | None = None
+
+    for event in sorted_events:
+        event_time = parse_iso_timestamp(event.get("created_at", ""))
+        event_key = (
+            str(event.get("session_id", "")).strip() or str(event.get("channel", "")).strip() or "default",
+            str(event.get("channel", "")).strip() or "local",
+        )
+        should_split = False
+        if current and event_key != current_key:
+            should_split = True
+        elif current and previous_time is not None:
+            delta_minutes = (event_time - previous_time).total_seconds() / 60.0
+            if delta_minutes > max_gap_minutes:
+                should_split = True
+        if should_split and current:
+            episodes.append(_build_episode_record(current, current_key))
+            current = []
+        if not current:
+            current_key = event_key
+        current.append(event)
+        previous_time = event_time
+
+    if current:
+        episodes.append(_build_episode_record(current, current_key))
+    return episodes
+
+
+def _build_episode_record(events: list[dict[str, Any]], event_key: tuple[str, str]) -> dict[str, Any]:
+    session_id, channel = event_key
+    start_at = events[0].get("created_at", utc_now())
+    end_at = events[-1].get("created_at", start_at)
+    event_ids = [str(event.get("id", "")) for event in events if str(event.get("id", "")).strip()]
+    user_ids = sorted({str(event.get("user_id", "")).strip() for event in events if str(event.get("user_id", "")).strip()})
+    roles = sorted({str(event.get("role", "")).strip() or "note" for event in events})
+    text_blob = " ".join(str(event.get("text", "")) for event in events).lower()
+    importance = min(
+        1.0,
+        0.2
+        + (0.1 * len(events))
+        + (0.2 if any(token in text_blob for token in ("error", "failed", "fix", "backup", "policy", "memory")) else 0.0),
+    )
+    return {
+        "id": stable_id("episode", session_id, channel, *event_ids),
+        "session_id": session_id,
+        "channel": channel,
+        "event_ids": event_ids,
+        "user_ids": user_ids,
+        "roles": roles,
+        "start_at": start_at,
+        "end_at": end_at,
+        "summary": build_episode_summary(events),
+        "importance": round(importance, 4),
+        "event_count": len(events),
+    }
+
+
+def detect_pattern_candidates(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        text = normalize_single_line(event.get("text", ""), limit=160).lower()
+        if not text:
+            continue
+        category = "general"
+        if any(token in text for token in ("error", "failed", "timeout", "unavailable")):
+            category = "failure"
+        elif any(token in text for token in ("backup", "restore", "recover")):
+            category = "recovery"
+        elif any(token in text for token in ("memory", "context", "projection", "journal")):
+            category = "memory"
+        elif any(token in text for token in ("router", "provider", "model", "nvidia", "openrouter")):
+            category = "brain"
+        key = stable_id(
+            "pattern-key",
+            category,
+            event.get("channel", ""),
+            event.get("source", ""),
+            re.sub(r"\b\d+\b", "#", text)[:100],
+        )
+        grouped.setdefault(key, []).append(event)
+
+    patterns: list[dict[str, Any]] = []
+    for key, matches in grouped.items():
+        if len(matches) < 2:
+            continue
+        first_text = normalize_single_line(matches[0].get("text", ""), limit=160)
+        pattern_id = stable_id("pattern", key, len(matches))
+        category = "general"
+        text_blob = " ".join(normalize_single_line(item.get("text", ""), limit=160).lower() for item in matches)
+        if any(token in text_blob for token in ("error", "failed", "timeout", "unavailable")):
+            category = "failure"
+        elif "memory" in text_blob:
+            category = "memory"
+        elif any(token in text_blob for token in ("provider", "router", "model", "nvidia", "openrouter")):
+            category = "brain"
+        patterns.append(
+            {
+                "id": pattern_id,
+                "category": category,
+                "count": len(matches),
+                "summary": f"Repeated {category} pattern seen {len(matches)} times: {first_text}",
+                "event_ids": [item.get("id", "") for item in matches],
+            }
+        )
+    patterns.sort(key=lambda item: (item["count"], item["summary"]), reverse=True)
+    return patterns[:6]
+
+
+def build_working_state_snapshot(events: list[dict[str, Any]], entries: list[dict[str, Any]]) -> dict[str, Any]:
+    latest_events = list(reversed(events[-5:])) if events else []
+    focus = "memory"
+    blockers: list[str] = []
+    next_actions: list[str] = []
+    for pattern in detect_pattern_candidates(events)[:3]:
+        if pattern["category"] == "failure":
+            blockers.append(pattern["summary"])
+        if pattern["category"] in {"memory", "brain"}:
+            next_actions.append(f"Review {pattern['category']} pattern: {pattern['summary']}")
+    if not next_actions and latest_events:
+        next_actions.append("Continue consolidating recent episodes into compact memory.")
+    summaries = [normalize_single_line(item.get("summary", "") or item.get("text", ""), limit=140) for item in entries[:3]]
+    return {
+        "focus": focus,
+        "active_items": summaries,
+        "blockers": blockers[:3],
+        "next_actions": next_actions[:3],
+        "recent_events": [normalize_single_line(event.get("text", ""), limit=120) for event in latest_events],
+    }
 
 
 def row_to_entry(row: sqlite3.Row, include_embedding: bool = False) -> dict[str, Any]:
@@ -1688,6 +1911,271 @@ def build_context(query: str, limit: int, allowed_privacy: list[str] | None = No
         )
 
     return "\n\n".join(blocks)
+
+
+def recent_journal_events(limit: int = 40, allowed_privacy: list[str] | None = None) -> list[dict[str, Any]]:
+    ensure_store()
+    with connect_db() as conn:
+        privacy_clause, privacy_params = build_privacy_filter(allowed_privacy)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM journal_events
+            {privacy_clause}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (*privacy_params, limit),
+        ).fetchall()
+    return [journal_row_to_event(row) for row in reversed(rows)]
+
+
+def latest_semantic_entries(limit: int = 20, allowed_privacy: list[str] | None = None) -> list[dict[str, Any]]:
+    ensure_store()
+    with connect_db() as conn:
+        privacy_clause, privacy_params = build_privacy_filter(allowed_privacy)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM semantic_entries
+            {privacy_clause}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (*privacy_params, limit),
+        ).fetchall()
+    return [row_to_entry(row) for row in rows]
+
+
+def memory_meditation_snapshot(limit: int = 40) -> dict[str, Any]:
+    events = recent_journal_events(limit=limit, allowed_privacy=["public", "internal", "private"])
+    entries = latest_semantic_entries(limit=max(8, min(limit, 20)), allowed_privacy=["public", "internal", "private"])
+    episodes = group_events_into_episodes(events)
+    patterns = detect_pattern_candidates(events)
+    stats = memory_stats()
+    working_state = build_working_state_snapshot(events, entries)
+    repeated_failures = [pattern for pattern in patterns if pattern.get("category") == "failure"]
+    low_value_duplicates = sum(1 for pattern in patterns if pattern.get("count", 0) >= 3)
+    recommendations = [
+        "compress repeated episodes into stable summaries",
+        "refresh working_state from the latest operational context",
+        "preserve raw journal truth while keeping semantic memory lean",
+    ]
+    if repeated_failures:
+        recommendations.append("promote repeated failures into durable reflection/procedure memory")
+    if low_value_duplicates:
+        recommendations.append("avoid adding new duplicate semantic memories for repetitive low-value turns")
+    return {
+        "target_domain": "memory",
+        "generated_at": utc_now(),
+        "stats": stats,
+        "episodes": episodes[:6],
+        "patterns": patterns[:6],
+        "working_state": working_state,
+        "recommendations": recommendations,
+    }
+
+
+def upsert_causal_edge(
+    conn: sqlite3.Connection,
+    *,
+    source_event_id: str,
+    target_event_id: str,
+    session_id: str,
+    channel: str,
+    relation: str = "followed_by",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    edge_id = stable_id("edge", relation, source_event_id, target_event_id)
+    conn.execute(
+        """
+        INSERT INTO causal_edges (
+            id, created_at, relation, source_event_id, target_event_id, session_id, channel, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            created_at=excluded.created_at,
+            relation=excluded.relation,
+            session_id=excluded.session_id,
+            channel=excluded.channel,
+            metadata_json=excluded.metadata_json
+        """,
+        (
+            edge_id,
+            utc_now(),
+            relation,
+            source_event_id,
+            target_event_id,
+            session_id,
+            channel,
+            safe_json(metadata or {}),
+        ),
+    )
+
+
+def apply_memory_sleep(cycle_id: str, plan: dict[str, Any] | None = None) -> dict[str, Any]:
+    ensure_store()
+    snapshot = memory_meditation_snapshot(limit=48)
+    episodes = snapshot["episodes"]
+    patterns = snapshot["patterns"]
+    working_state = snapshot["working_state"]
+    checkpoint_id = stable_id("checkpoint", cycle_id or utc_now(), snapshot["stats"].get("journal_events", 0))
+    checkpoint_dir = STATE_LAYOUT["runtime_checkpoints_dir"] / checkpoint_id
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_manifest = {
+        "cycle_id": cycle_id,
+        "created_at": utc_now(),
+        "snapshot": snapshot,
+        "plan": plan or {},
+    }
+    (checkpoint_dir / "memory-snapshot.json").write_text(
+        json.dumps(checkpoint_manifest, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+
+    created_entry_ids: list[str] = []
+    with connect_db() as conn:
+        for episode in episodes[:4]:
+            episode_text = "\n".join(
+                [
+                    f"Episode summary: {episode['summary']}",
+                    f"Channel: {episode['channel']}",
+                    f"Session: {episode['session_id'] or 'none'}",
+                    f"Events: {', '.join(episode['event_ids'][:8])}",
+                ]
+            )
+            episode_entry = create_semantic_entry(
+                conn,
+                kind="episode",
+                source="sleep",
+                text=episode_text,
+                tags=["memory", "episode", "sleep"],
+                channel=episode.get("channel", ""),
+                session_id=episode.get("session_id", ""),
+                role="system",
+                user_id="",
+                metadata={
+                    "episode_event_ids": episode.get("event_ids", []),
+                    "importance": episode.get("importance", 0.0),
+                    "cycle_id": cycle_id,
+                },
+                entry_id=episode["id"],
+                source_id=",".join(episode.get("event_ids", [])),
+                source_provider="genie",
+                source_model="sleep",
+                verification_status="derived",
+                operator_confirmed=False,
+                policy_tags=["sleep", "episode"],
+                summary=episode["summary"],
+                facts=[
+                    f"event_count={episode.get('event_count', 0)}",
+                    f"importance={episode.get('importance', 0.0)}",
+                ],
+                todo=[],
+                constraints=[],
+            )
+            upsert_semantic_entry(conn, episode_entry)
+            created_entry_ids.append(episode_entry["id"])
+            event_ids = episode.get("event_ids", [])
+            for left, right in zip(event_ids, event_ids[1:]):
+                upsert_causal_edge(
+                    conn,
+                    source_event_id=left,
+                    target_event_id=right,
+                    session_id=episode.get("session_id", ""),
+                    channel=episode.get("channel", ""),
+                    metadata={"cycle_id": cycle_id, "episode_id": episode["id"]},
+                )
+
+        for pattern in patterns[:4]:
+            kind = "procedure" if pattern.get("category") == "failure" else "reflection"
+            pattern_entry = create_semantic_entry(
+                conn,
+                kind=kind,
+                source="sleep",
+                text=pattern["summary"],
+                tags=["memory", "pattern", pattern.get("category", "general"), "sleep"],
+                metadata={
+                    "pattern_count": pattern.get("count", 0),
+                    "pattern_event_ids": pattern.get("event_ids", []),
+                    "cycle_id": cycle_id,
+                },
+                entry_id=pattern["id"],
+                source_id=",".join(pattern.get("event_ids", [])),
+                source_provider="genie",
+                source_model="sleep",
+                verification_status="derived",
+                operator_confirmed=False,
+                policy_tags=["sleep", "pattern"],
+                summary=pattern["summary"],
+                facts=[f"count={pattern.get('count', 0)}", f"category={pattern.get('category', 'general')}"],
+                todo=[
+                    "review repeated failures and convert stable lessons into procedures"
+                    if kind == "procedure"
+                    else "keep reflection compact and evidence-backed"
+                ],
+                constraints=["do not overwrite raw journal truth"],
+            )
+            upsert_semantic_entry(conn, pattern_entry)
+            created_entry_ids.append(pattern_entry["id"])
+
+        working_summary = " | ".join(working_state.get("active_items", [])[:2]) or "Maintain bounded continuity."
+        working_entry = create_semantic_entry(
+            conn,
+            kind="working_state",
+            source="sleep",
+            text="\n".join(
+                [
+                    f"Focus: {working_state.get('focus', 'memory')}",
+                    "Blockers:",
+                    *[f"- {item}" for item in working_state.get("blockers", [])],
+                    "Next actions:",
+                    *[f"- {item}" for item in working_state.get("next_actions", [])],
+                ]
+            ),
+            tags=["working-state", "sleep", "memory"],
+            metadata={"cycle_id": cycle_id, "recent_events": working_state.get("recent_events", [])},
+            entry_id="working-state-current",
+            source_id=f"cycle:{cycle_id}",
+            source_provider="genie",
+            source_model="sleep",
+            verification_status="derived",
+            operator_confirmed=False,
+            policy_tags=["sleep", "working_state"],
+            summary=working_summary,
+            facts=working_state.get("active_items", [])[:4],
+            todo=working_state.get("next_actions", [])[:3],
+            constraints=working_state.get("blockers", [])[:3],
+        )
+        upsert_semantic_entry(conn, working_entry)
+        created_entry_ids.append(working_entry["id"])
+        conn.commit()
+        sync_compatibility_export(conn)
+
+    try_sync_projection_files()
+    with connect_db() as conn:
+        causal_edge_count = conn.execute("SELECT COUNT(*) AS count FROM causal_edges").fetchone()["count"]
+    sync_result = {
+        "status": "ok",
+        "projection_memory_file": str(PROJECTION_MEMORY_FILE),
+    }
+    return {
+        "ok": True,
+        "cycle_id": cycle_id,
+        "checkpoint_id": checkpoint_id,
+        "checkpoint_dir": str(checkpoint_dir),
+        "created_entry_ids": created_entry_ids,
+        "episodes_created": min(len(episodes), 4),
+        "patterns_created": min(len(patterns), 4),
+        "created_counts": {
+            "episodes": min(len(episodes), 4),
+            "patterns": min(len(patterns), 4),
+            "entries": len(created_entry_ids),
+        },
+        "causal_edge_count": causal_edge_count,
+        "working_state": working_state,
+        "snapshot": snapshot,
+        "sync_result": sync_result,
+    }
 
 
 def list_memory_entries(limit: int) -> list[dict[str, Any]]:

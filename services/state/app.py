@@ -30,6 +30,10 @@ MEMORY_POST_PATHS = {
     "/sync-projections": lambda payload: memory_domain.sync_projections(),
     "/memory/sync-projections": lambda payload: memory_domain.sync_projections(),
     "/state/sync-projections": lambda payload: memory_domain.sync_projections(),
+    "/memory/meditation": memory_domain.meditation,
+    "/state/memory/meditation": memory_domain.meditation,
+    "/memory/sleep": memory_domain.sleep,
+    "/state/memory/sleep": memory_domain.sleep,
 }
 RUNTIME_POST_PATHS = {
     "/runtime/proposals/create": runtime_domain.create_proposal,
@@ -42,6 +46,12 @@ RUNTIME_POST_PATHS = {
     "/state/runtime/proposals/update": runtime_domain.update_proposal,
     "/runtime/control-log": runtime_domain.append_control_log,
     "/state/runtime/control-log": runtime_domain.append_control_log,
+    "/runtime/mind-state": runtime_domain.set_mind_state,
+    "/state/runtime/mind-state": runtime_domain.set_mind_state,
+    "/runtime/cycles/create": runtime_domain.create_mind_cycle,
+    "/state/runtime/cycles/create": runtime_domain.create_mind_cycle,
+    "/runtime/cycles/update": runtime_domain.update_mind_cycle,
+    "/state/runtime/cycles/update": runtime_domain.update_mind_cycle,
 }
 POLICY_POST_PATHS = {
     "/policy/capabilities/upsert": policy_domain.upsert_capability_registry,
@@ -123,6 +133,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, memory_domain.stats())
                 return
 
+            if parsed.path in {"/memory/meditation", "/state/memory/meditation"}:
+                self._write_json(
+                    HTTPStatus.OK,
+                    memory_domain.meditation({"limit": query.get("limit", ["40"])[0]}),
+                )
+                return
+
             if parsed.path in {"/policy/summary", "/state/policy/summary"}:
                 self._write_json(HTTPStatus.OK, policy_domain.summary())
                 return
@@ -141,6 +158,22 @@ class Handler(BaseHTTPRequestHandler):
 
             if parsed.path in {"/runtime/summary", "/state/runtime/summary"}:
                 self._write_json(HTTPStatus.OK, runtime_domain.summary())
+                return
+
+            if parsed.path in {"/runtime/mind", "/state/runtime/mind"}:
+                self._write_json(HTTPStatus.OK, runtime_domain.load_mind_state())
+                return
+
+            if parsed.path in {"/runtime/cycles", "/state/runtime/cycles"}:
+                self._write_json(
+                    HTTPStatus.OK,
+                    runtime_domain.list_mind_cycles(
+                        {
+                            "limit": query.get("limit", ["10"])[0],
+                            "state": query.get("state", [""])[0],
+                        }
+                    ),
+                )
                 return
 
             if parsed.path in {"/runtime/proposals", "/state/runtime/proposals"}:

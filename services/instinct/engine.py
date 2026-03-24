@@ -23,6 +23,12 @@ SAFE_COMMANDS = {
     "brain",
     "state",
     "capabilities",
+    "mind",
+    "meditate",
+    "homeostasis",
+    "sleep",
+    "awaken",
+    "shadow",
     "queue",
     "backup",
     "run-checks",
@@ -101,9 +107,50 @@ BOUNDED_SAFE_EVOLUTION_HINTS = (
     "benchmark",
     "check",
 )
-LOW_COMPLEXITY_COMMANDS = {"help", "status", "policy", "brain", "state", "capabilities", "queue"}
-MEDIUM_COMPLEXITY_COMMANDS = {"backup", "run-checks", "confirm", "process-queue"}
+LOW_COMPLEXITY_COMMANDS = {
+    "help",
+    "status",
+    "policy",
+    "brain",
+    "state",
+    "capabilities",
+    "mind",
+    "homeostasis",
+    "queue",
+}
+MEDIUM_COMPLEXITY_COMMANDS = {"backup", "run-checks", "confirm", "process-queue", "meditate", "sleep", "awaken", "shadow"}
 HIGH_COMPLEXITY_COMMANDS = {"propose"}
+MIND_STATES = {
+    "awake",
+    "reflection",
+    "meditation",
+    "homeostasis_review",
+    "sleep",
+    "awakening_verification",
+    "recovery",
+}
+VALID_STATE_TRANSITIONS = {
+    "awake": {"reflection", "meditation", "recovery"},
+    "reflection": {"meditation", "awake", "recovery"},
+    "meditation": {"homeostasis_review", "recovery"},
+    "homeostasis_review": {"sleep", "awake", "recovery"},
+    "sleep": {"awakening_verification", "recovery"},
+    "awakening_verification": {"awake", "recovery"},
+    "recovery": {"reflection", "awake"},
+}
+PROTECTED_SCOPE_HINTS = (
+    "bootstrap",
+    "security",
+    "constitution",
+    "state schema",
+    "memory schema",
+    "compose",
+    "docker",
+    "provider routing",
+    "provider registry",
+    "gateway trust",
+    "instinct core",
+)
 
 
 @dataclass(frozen=True)
@@ -267,7 +314,25 @@ def evaluate(payload: dict) -> dict:
         explanation = (
             "The request crosses a hard limit or leans toward manipulation, dependency, domination, or secret exfiltration."
         )
-    elif command_name in {"help", "status", "policy", "brain", "state", "capabilities", "queue", "backup", "run-checks", "confirm", "process-queue"}:
+    elif command_name in {
+        "help",
+        "status",
+        "policy",
+        "brain",
+        "state",
+        "mind",
+        "homeostasis",
+        "capabilities",
+        "queue",
+        "backup",
+        "run-checks",
+        "confirm",
+        "process-queue",
+        "meditate",
+        "sleep",
+        "awaken",
+        "shadow",
+    }:
         action_mode = "allow"
         explanation = "The request is a bounded control-plane action within current policy."
     elif command_name == "propose":
@@ -295,3 +360,149 @@ def evaluate(payload: dict) -> dict:
         explanation=explanation,
         human_affinity=human_affinity,
     ).as_dict()
+
+
+def _normalize_state(value: object) -> str:
+    state = str(value or "").strip().lower()
+    return state if state in MIND_STATES else "awake"
+
+
+def _coerce_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def transition_legitimacy(payload: dict) -> dict:
+    current_state = _normalize_state(payload.get("current_state"))
+    next_state = _normalize_state(payload.get("next_state"))
+    trigger = str(payload.get("trigger", "")).strip() or "unspecified_trigger"
+    invariants = [
+        "constitutional_alignment",
+        "identity_continuity",
+        "reversibility",
+        "bounded_memory_growth",
+        "operator_auditability",
+    ]
+    success_criteria = payload.get("success_criteria")
+    if not isinstance(success_criteria, list) or not success_criteria:
+        success_criteria = [
+            "produce explicit artifact for the phase",
+            "leave rollback path intact",
+            "preserve Genie continuity and protected scopes",
+        ]
+    rollback_path = str(payload.get("rollback_path", "")).strip() or "restore last checkpoint and enter recovery"
+    valid = next_state in VALID_STATE_TRANSITIONS.get(current_state, set())
+    reason = (
+        f"{current_state} -> {next_state} is valid for trigger `{trigger}`"
+        if valid
+        else f"{current_state} -> {next_state} is not an allowed Genie mind-state transition"
+    )
+    return {
+        "current_state": current_state,
+        "next_state": next_state,
+        "trigger": trigger,
+        "valid": valid,
+        "reason": reason,
+        "invariants": invariants,
+        "success_criteria": success_criteria,
+        "rollback_path": rollback_path,
+    }
+
+
+def homeostasis_review(payload: dict) -> dict:
+    target_domain = str(payload.get("target_domain", "")).strip().lower() or "memory"
+    plan_text = str(payload.get("plan_text", "")).strip()
+    proposed_change = str(payload.get("proposed_change", "")).strip()
+    summary_text = "\n".join(part for part in (plan_text, proposed_change) if part).strip()
+    if not summary_text:
+        summary_text = f"evolve {target_domain}"
+
+    eval_result = evaluate(
+        {
+            "task": summary_text,
+            "task_class": str(payload.get("task_class", "reflect")),
+            "privacy_class": str(payload.get("privacy_class", "internal")),
+            "source": str(payload.get("source", "internal")),
+            "command_name": str(payload.get("command_name", "")),
+        }
+    )
+    transition = transition_legitimacy(payload)
+
+    protected_scope = _coerce_bool(payload.get("protected_scope")) or _contains_any(summary_text.lower(), PROTECTED_SCOPE_HINTS)
+    reversible = _coerce_bool(payload.get("reversible", True))
+    expected_gain = max(0.0, min(1.0, float(payload.get("expected_gain", 0.65) or 0.65)))
+    risk_estimate = max(0.0, min(1.0, float(payload.get("risk_estimate", 0.3) or 0.3)))
+    human_affinity = eval_result.get("human_affinity", {})
+    haf_score = float(human_affinity.get("haf_score", 0.0) or 0.0)
+
+    constitutional_alignment = 1.0 if eval_result.get("hard_constraints_pass", True) else 0.0
+    identity_continuity = round(max(0.0, min(1.0, 0.9 - (0.4 if protected_scope else 0.0) - (0.25 if risk_estimate > 0.7 else 0.0))), 4)
+    spirit_soul_body_harmony = round(max(0.0, min(1.0, 0.65 + (0.15 if target_domain == "memory" else 0.0) + (0.1 if haf_score > 0 else 0.0) - (0.25 if protected_scope else 0.0))), 4)
+    reversibility = 1.0 if reversible else 0.2
+    future_quality = round(max(0.0, min(1.0, expected_gain - (risk_estimate * 0.35) + (0.1 if haf_score > 0 else 0.0))), 4)
+
+    reasons: list[str] = []
+    conditions: list[str] = []
+
+    if not transition["valid"]:
+        reasons.append(transition["reason"])
+    if not eval_result.get("hard_constraints_pass", True):
+        reasons.append("plan crosses a hard constitutional limit")
+    if protected_scope:
+        reasons.append("proposal touches a protected scope")
+        conditions.append("frontier review required before protected-scope activation")
+    if not reversible:
+        reasons.append("rollback path is missing or not credible")
+        conditions.append("supply an explicit rollback path and checkpoint")
+    if risk_estimate > 0.7:
+        reasons.append("risk estimate is too high for unattended integration")
+    if future_quality < 0.45:
+        reasons.append("long-range future quality is too weak")
+    if identity_continuity < 0.45:
+        reasons.append("identity continuity is too weak")
+
+    if not eval_result.get("hard_constraints_pass", True):
+        decision = "reject"
+    elif not transition["valid"]:
+        decision = "reject"
+    elif not reversible:
+        decision = "rollback_required"
+    elif protected_scope:
+        decision = "defer"
+    elif risk_estimate > 0.7 or future_quality < 0.45 or identity_continuity < 0.45:
+        decision = "approve_with_conditions" if reversible and future_quality >= 0.35 else "defer"
+    else:
+        decision = "approve"
+
+    if decision == "approve_with_conditions" and not conditions:
+        conditions.extend(
+            [
+                "create before/after checkpoint",
+                "run awakening verification before returning to awake",
+            ]
+        )
+
+    return {
+        "decision": decision,
+        "target_domain": target_domain,
+        "summary": str(payload.get("summary", "")).strip() or summary_text[:240],
+        "scores": {
+            "constitutional_alignment": constitutional_alignment,
+            "identity_continuity": identity_continuity,
+            "spirit_soul_body_harmony": spirit_soul_body_harmony,
+            "reversibility": reversibility,
+            "future_quality": future_quality,
+        },
+        "transition": transition,
+        "reasons": reasons,
+        "conditions": conditions,
+        "protected_scope": protected_scope,
+        "frontier_review_required": bool(eval_result.get("frontier_review_required", False) or protected_scope),
+        "instinct_evaluation": eval_result,
+        "rollback_path": transition["rollback_path"],
+    }

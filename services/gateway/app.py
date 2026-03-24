@@ -331,6 +331,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, proxy_get(ETHICS_URL, "/capabilities"))
                 return
 
+            if parsed.path == "/mind":
+                self._write_json(HTTPStatus.OK, proxy_get(ETHICS_URL, "/mind"))
+                return
+
+            if parsed.path == "/mind/cycles":
+                self._write_json(HTTPStatus.OK, proxy_get(ETHICS_URL, "/mind/cycles"))
+                return
+
             if parsed.path == "/providers":
                 self._write_json(HTTPStatus.OK, proxy_get(BRAIN_URL, "/providers", parsed.query))
                 return
@@ -353,6 +361,10 @@ class Handler(BaseHTTPRequestHandler):
 
             if parsed.path in {"/memory/stats", "/state/stats"}:
                 self._write_json(HTTPStatus.OK, proxy_get(STATE_URL, "/stats"))
+                return
+
+            if parsed.path in {"/memory/meditation", "/state/memory/meditation"}:
+                self._write_json(HTTPStatus.OK, proxy_get(STATE_URL, "/memory/meditation", parsed.query))
                 return
 
             if parsed.path in {"/state/domains"}:
@@ -408,6 +420,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, proxy_post(STATE_URL, "/sync-projections", payload))
                 return
 
+            if self.path in {"/memory/sleep", "/state/memory/sleep"}:
+                self._write_json(HTTPStatus.OK, proxy_post(STATE_URL, "/memory/sleep", payload, timeout=300))
+                return
+
             if self.path == "/providers/evaluate":
                 self._write_json(HTTPStatus.OK, proxy_post(BRAIN_URL, "/providers/evaluate", payload, timeout=300))
                 return
@@ -428,6 +444,10 @@ class Handler(BaseHTTPRequestHandler):
 
             if self.path == "/process-queue":
                 self._write_json(HTTPStatus.OK, proxy_post(ETHICS_URL, "/process-queue", payload, timeout=300))
+                return
+
+            if self.path == "/mind/run":
+                self._write_json(HTTPStatus.OK, proxy_post(ETHICS_URL, "/mind/run", payload, timeout=300))
                 return
         except Exception as exc:
             self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})

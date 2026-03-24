@@ -26,6 +26,12 @@ def default_capability_registry() -> dict[str, Any]:
             "generated_docs_tests_executor",
             "safe_backup",
             "hardness_checks",
+            "mind_state_loop",
+            "memory_meditation",
+            "memory_sleep_integration",
+            "homeostasis_review",
+            "shadow_benchmarking",
+            "unattended_runner",
         ],
         "missing_capabilities": [
             "web_navigation",

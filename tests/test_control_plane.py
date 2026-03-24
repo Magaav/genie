@@ -37,6 +37,16 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(parsed["command"], "process-queue")
         self.assertEqual(parsed["argument"], "")
 
+    def test_parse_meditate_command(self) -> None:
+        parsed = CONTROL.parse_control_command("/meditate memory")
+        self.assertEqual(parsed["command"], "meditate")
+        self.assertEqual(parsed["argument"], "memory")
+
+    def test_parse_shadow_command(self) -> None:
+        parsed = CONTROL.parse_control_command("/shadow")
+        self.assertEqual(parsed["command"], "shadow")
+        self.assertEqual(parsed["argument"], "")
+
     def test_non_command_returns_none(self) -> None:
         self.assertIsNone(CONTROL.parse_control_command("hello genie"))
 

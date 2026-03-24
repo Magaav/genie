@@ -73,5 +73,20 @@ def sync_projections() -> dict[str, Any]:
     }
 
 
+def meditation(payload: dict[str, Any]) -> dict[str, Any]:
+    limit = int(payload.get("limit", 40) or 40)
+    return local_memory.memory_meditation_snapshot(limit=max(10, min(200, limit)))
+
+
+def sleep(payload: dict[str, Any]) -> dict[str, Any]:
+    cycle_id = str(payload.get("cycle_id", "")).strip()
+    if not cycle_id:
+        raise ValueError("cycle_id is required")
+    plan = payload.get("plan")
+    if plan is not None and not isinstance(plan, dict):
+        raise ValueError("plan must be an object when provided")
+    return local_memory.apply_memory_sleep(cycle_id, plan=plan or {})
+
+
 def try_sync_projections() -> None:
     local_memory.try_sync_projection_files()

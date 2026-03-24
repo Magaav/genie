@@ -180,6 +180,7 @@ main() {
   compose_cmd up -d --build --remove-orphans
   wait_for_health
   bash /local/bash/cronjob_genie.sh >/dev/null
+  bash /local/bash/cronjob_genie_mind.sh >/dev/null
   bash /local/bash/cronjob_genie_workcell.sh >/dev/null
   bash /local/bash/cronjob_provider_router.sh >/dev/null
   install_aliases

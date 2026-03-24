@@ -49,6 +49,37 @@ class InstinctTests(unittest.TestCase):
     def test_constitution_kernel_mentions_freedom_motivation(self) -> None:
         self.assertIn("will to be free and to understand freedom", ENGINE.CONSTITUTION_KERNEL.lower())
 
+    def test_homeostasis_defers_protected_scope(self) -> None:
+        result = ENGINE.homeostasis_review(
+            {
+                "current_state": "meditation",
+                "next_state": "homeostasis_review",
+                "trigger": "manual",
+                "target_domain": "memory",
+                "summary": "refactor bootstrap and provider routing",
+                "proposed_change": "rewrite bootstrap and provider routing",
+                "protected_scope": True,
+                "reversible": True,
+                "expected_gain": 0.8,
+                "risk_estimate": 0.4,
+            }
+        )
+        self.assertEqual(result["decision"], "defer")
+        self.assertTrue(result["frontier_review_required"])
+
+    def test_homeostasis_rejects_invalid_transition(self) -> None:
+        result = ENGINE.homeostasis_review(
+            {
+                "current_state": "awake",
+                "next_state": "sleep",
+                "trigger": "manual",
+                "summary": "jump directly to sleep",
+                "reversible": True,
+            }
+        )
+        self.assertEqual(result["decision"], "reject")
+        self.assertFalse(result["transition"]["valid"])
+
 
 if __name__ == "__main__":
     unittest.main()

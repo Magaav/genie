@@ -1,9 +1,10 @@
 # Genie Memory Flow
 
-Genie now uses a native four-service node:
+Genie now uses a native five-service node:
 
 - `gateway`
 - `ethics`
+- `instinct`
 - `state`
 - `brain`
 
@@ -26,6 +27,7 @@ This file describes the current runtime flow. The long-horizon target memory des
 - container runtime:
   - `gateway`
   - `ethics`
+  - `instinct`
   - `state`
   - `brain`
 
@@ -68,6 +70,17 @@ It owns:
 - export/import and restore hooks
 - memory as a first-class state domain
 
+### `instinct`
+
+The constitutional court.
+
+It owns:
+
+- hard-limit checks
+- human-affinity scoring
+- `homeostasis` review for self-change
+- transition legitimacy checks for the unattended mind loop
+
 ### `brain`
 
 The Brain Router service.
@@ -103,7 +116,7 @@ State domains:
 - `telemetry`
   - provider health, benchmarks, scorecards, discovery, and usage ledgers
 - `runtime`
-  - generated packages, response captures, bridge queues, and frontier sidecar runtime state
+  - generated packages, response captures, bridge queues, frontier sidecar runtime state, mind-cycle artifacts, checkpoints, and shadow reports
 
 Canonical memory files:
 
@@ -140,6 +153,19 @@ Brain Router state:
 7. `ethics` evaluates the result, decides whether to accept it or escalate, and returns a final response.
 8. `gateway` delivers the reply and records the turn back into `state`.
 9. `state` refreshes projection files so the node preserves continuity across restarts and endpoints.
+
+## Unattended Inner Loop
+
+The current self-stabilization loop is:
+
+1. `reflection`
+2. `meditation`
+3. `homeostasis_review`
+4. `sleep`
+5. `awakening_verification`
+
+The first meditation target is `memory`.
+Artifacts for each cycle live under `/local/state/genie/runtime/cycles`, with checkpoints under `/local/state/genie/runtime/checkpoints`.
 
 ## Operational Rules
 

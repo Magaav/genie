@@ -16,9 +16,15 @@ HELP_TEXT = """Genie control plane:
 /policy
 /brain
 /state
+/mind
 /capabilities
 /backup
 /run-checks
+/meditate <domain>
+/homeostasis <cycle-id|latest>
+/sleep <cycle-id|latest>
+/awaken <cycle-id|latest>
+/shadow
 /propose <change request>
 /queue
 /confirm <proposal-id>

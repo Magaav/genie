@@ -35,6 +35,11 @@ PROJECTIONS_DIR="${PROJECTIONS_DIR:-$MEMORY_DIR/projections}"
 REVIEW_QUEUE_FILE="${GENIE_REVIEW_QUEUE_FILE:-$RUNTIME_DIR/review-queue.jsonl}"
 CONTROL_LOG_FILE="${GENIE_CONTROL_LOG_FILE:-$RUNTIME_DIR/control-log.jsonl}"
 WORKCELLS_DIR="${GENIE_WORKCELLS_DIR:-$RUNTIME_DIR/workcells}"
+MIND_STATE_FILE="${GENIE_MIND_STATE_FILE:-$RUNTIME_DIR/mind-state.json}"
+MIND_CYCLES_FILE="${GENIE_MIND_CYCLES_FILE:-$RUNTIME_DIR/mind-cycles.jsonl}"
+MIND_CYCLES_DIR="${GENIE_MIND_CYCLES_DIR:-$RUNTIME_DIR/cycles}"
+CHECKPOINTS_DIR="${GENIE_MIND_CHECKPOINTS_DIR:-$RUNTIME_DIR/checkpoints}"
+SHADOW_REPORTS_DIR="${GENIE_SHADOW_REPORTS_DIR:-$RUNTIME_DIR/shadow-reports}"
 
 if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   OWNER_USER="${FREEWILLER_OWNER:-${SUDO_USER:-ubuntu}}"
@@ -148,9 +153,34 @@ build_snapshot_dir() {
     fi
   fi
 
+  if [ -f "$MIND_STATE_FILE" ] || [ -f "$MIND_CYCLES_FILE" ]; then
+    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime"
+    if [ -f "$MIND_STATE_FILE" ]; then
+      cp "$MIND_STATE_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/mind-state.json"
+    fi
+    if [ -f "$MIND_CYCLES_FILE" ]; then
+      cp "$MIND_CYCLES_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/mind-cycles.jsonl"
+    fi
+  fi
+
   if [ -d "$WORKCELLS_DIR" ]; then
     mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/workcells"
     tar --exclude='*.migrated-*' -cf - -C "$WORKCELLS_DIR" . | tar -xf - -C "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/workcells"
+  fi
+
+  if [ -d "$MIND_CYCLES_DIR" ]; then
+    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/cycles"
+    tar --exclude='*.migrated-*' -cf - -C "$MIND_CYCLES_DIR" . | tar -xf - -C "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/cycles"
+  fi
+
+  if [ -d "$CHECKPOINTS_DIR" ]; then
+    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/checkpoints"
+    tar --exclude='*.migrated-*' -cf - -C "$CHECKPOINTS_DIR" . | tar -xf - -C "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/checkpoints"
+  fi
+
+  if [ -d "$SHADOW_REPORTS_DIR" ]; then
+    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/shadow-reports"
+    tar --exclude='*.migrated-*' -cf - -C "$SHADOW_REPORTS_DIR" . | tar -xf - -C "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/shadow-reports"
   fi
 
   if [ -f "$MEMORY_DIR/entries.jsonl" ]; then
@@ -171,7 +201,11 @@ build_snapshot_dir() {
   "provider_usage_events": $(wc -l < "$USAGE_LEDGER_FILE" 2>/dev/null || echo 0),
   "review_queue_entries": $(wc -l < "$REVIEW_QUEUE_FILE" 2>/dev/null || echo 0),
   "control_log_entries": $(wc -l < "$CONTROL_LOG_FILE" 2>/dev/null || echo 0),
+  "mind_cycle_entries": $(wc -l < "$MIND_CYCLES_FILE" 2>/dev/null || echo 0),
   "workcell_files": $(find "$WORKCELLS_DIR" -type f 2>/dev/null | wc -l || echo 0),
+  "cycle_artifacts": $(find "$MIND_CYCLES_DIR" -type f 2>/dev/null | wc -l || echo 0),
+  "checkpoint_files": $(find "$CHECKPOINTS_DIR" -type f 2>/dev/null | wc -l || echo 0),
+  "shadow_report_files": $(find "$SHADOW_REPORTS_DIR" -type f 2>/dev/null | wc -l || echo 0),
   "provider_health_present": $([ -f "$PROVIDER_HEALTH_FILE" ] && echo true || echo false),
   "provider_benchmarks_present": $([ -f "$PROVIDER_BENCHMARKS_FILE" ] && echo true || echo false),
   "memory_format": "hybrid-sqlite-compact-jsonl",
@@ -380,9 +414,34 @@ restore_backup() {
     run_as_root install -m 644 "$snapshot_dir/runtime/control-log.jsonl" "$CONTROL_LOG_FILE"
   fi
 
+  if [ -f "$snapshot_dir/runtime/mind-state.json" ]; then
+    run_as_root mkdir -p "$RUNTIME_DIR"
+    run_as_root install -m 644 "$snapshot_dir/runtime/mind-state.json" "$MIND_STATE_FILE"
+  fi
+
+  if [ -f "$snapshot_dir/runtime/mind-cycles.jsonl" ]; then
+    run_as_root mkdir -p "$RUNTIME_DIR"
+    run_as_root install -m 644 "$snapshot_dir/runtime/mind-cycles.jsonl" "$MIND_CYCLES_FILE"
+  fi
+
   if [ -d "$snapshot_dir/runtime/workcells" ]; then
     run_as_root mkdir -p "$WORKCELLS_DIR"
     run_as_root cp -R "$snapshot_dir/runtime/workcells"/. "$WORKCELLS_DIR/"
+  fi
+
+  if [ -d "$snapshot_dir/runtime/cycles" ]; then
+    run_as_root mkdir -p "$MIND_CYCLES_DIR"
+    run_as_root cp -R "$snapshot_dir/runtime/cycles"/. "$MIND_CYCLES_DIR/"
+  fi
+
+  if [ -d "$snapshot_dir/runtime/checkpoints" ]; then
+    run_as_root mkdir -p "$CHECKPOINTS_DIR"
+    run_as_root cp -R "$snapshot_dir/runtime/checkpoints"/. "$CHECKPOINTS_DIR/"
+  fi
+
+  if [ -d "$snapshot_dir/runtime/shadow-reports" ]; then
+    run_as_root mkdir -p "$SHADOW_REPORTS_DIR"
+    run_as_root cp -R "$snapshot_dir/runtime/shadow-reports"/. "$SHADOW_REPORTS_DIR/"
   fi
 
   if [ -f "$compact_memory_path" ]; then

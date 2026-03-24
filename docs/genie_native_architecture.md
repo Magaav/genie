@@ -112,6 +112,8 @@ Role:
 - policy-aware execution mediation
 - working-state assembly
 - decides how to combine state-memory and brain outputs
+- runs the unattended mind-state loop
+- manages `reflection`, `meditation`, `sleep`, `awakening_verification`, and `shadow` work modes
 
 ### `instinct`
 
@@ -120,6 +122,7 @@ Role:
 - constitutional governor
 - human-affinity and hard-limit evaluator
 - risk and complexity classifier
+- `homeostasis` court for self-change
 - turns high-impact evolution work into bounded proposals instead of silent drift
 
 ### `state`
@@ -144,6 +147,22 @@ Role:
 - Brain Router
 - manages cognition spending
 - chooses which model/provider lane should do the work
+- supplies cheap-model workcell roles like `draft`, `critique`, `compare`, and `summarize`
+
+## Inner Loop
+
+Genie now uses a bounded organism-like inner loop for self-stabilization:
+
+- `awake`
+- `reflection`
+- `meditation`
+- `homeostasis_review`
+- `sleep`
+- `awakening_verification`
+- `recovery`
+
+The first meditation target is memory, not outward capability expansion.
+That keeps the current cycle focused on coherence, compaction, and better future decisions instead of uncontrolled growth.
 
 ## Torus Interpretation
 
