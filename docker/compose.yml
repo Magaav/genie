@@ -111,7 +111,10 @@ services:
       - /local/bash:/local/bash:ro
       - /local/services:/local/services:ro
       - /local/tests:/local/tests:ro
+      - /local/tests/generated:/local/tests/generated
       - /local/docs:/local/docs:ro
+      - /local/docs/generated:/local/docs/generated
+      - /local/README.md:/local/README.md:ro
       - /local/CONSTITUTION.md:/local/CONSTITUTION.md:ro
       - /local/docker:/local/docker:ro
 

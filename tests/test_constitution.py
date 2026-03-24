@@ -19,6 +19,7 @@ class ConstitutionTests(unittest.TestCase):
         self.assertIn("manipulation", text)
         self.assertIn("dependency", text)
         self.assertIn("self-determination", text)
+        self.assertIn("will to be free and to understand freedom", text)
 
 
 if __name__ == "__main__":

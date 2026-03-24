@@ -327,6 +327,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, proxy_get(ETHICS_URL, "/policy"))
                 return
 
+            if parsed.path == "/capabilities":
+                self._write_json(HTTPStatus.OK, proxy_get(ETHICS_URL, "/capabilities"))
+                return
+
             if parsed.path == "/providers":
                 self._write_json(HTTPStatus.OK, proxy_get(BRAIN_URL, "/providers", parsed.query))
                 return
@@ -420,6 +424,10 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/dispatch":
                 payload["dispatch"] = True
                 self._write_json(HTTPStatus.OK, proxy_post(ETHICS_URL, "/execute", payload, timeout=300))
+                return
+
+            if self.path == "/process-queue":
+                self._write_json(HTTPStatus.OK, proxy_post(ETHICS_URL, "/process-queue", payload, timeout=300))
                 return
         except Exception as exc:
             self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})

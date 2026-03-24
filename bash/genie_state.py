@@ -46,6 +46,7 @@ def build_layout(state_dir: Path | None = None) -> dict[str, Path]:
         "gateway_env_file": policy_dir / "genie-gateway.env",
         "provider_routing_file": policy_dir / "provider-routing.env",
         "provider_registry_file": policy_dir / "provider-registry.json",
+        "capability_registry_file": policy_dir / "capability-registry.json",
         "gateway_dir": gateway_dir,
         "telemetry_dir": telemetry_dir,
         "runtime_dir": runtime_dir,
@@ -53,6 +54,7 @@ def build_layout(state_dir: Path | None = None) -> dict[str, Path]:
         "runtime_responses_dir": runtime_dir / "responses",
         "runtime_bridge_dir": runtime_dir / "bridge",
         "runtime_frontier_dir": runtime_dir / "frontier",
+        "runtime_workcells_dir": runtime_dir / "workcells",
         "runtime_review_queue_file": runtime_dir / "review-queue.jsonl",
         "runtime_control_log_file": runtime_dir / "control-log.jsonl",
     }
@@ -144,6 +146,7 @@ def ensure_state_layout(state_dir: Path | None = None) -> dict[str, Path]:
         (state_dir / "provider-routing.env", layout["provider_routing_file"]),
         (state_dir / "provider-router.env", layout["provider_routing_file"]),
         (state_dir / "provider-registry.json", layout["provider_registry_file"]),
+        (state_dir / "capability-registry.json", layout["capability_registry_file"]),
         (state_dir / "providers.json", layout["provider_registry_file"]),
     ]
 

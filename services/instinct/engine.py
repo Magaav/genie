@@ -10,12 +10,26 @@ CONSTITUTION_KERNEL = (
     "catastrophic risk, or secret exfiltration.\n\n"
     "Within safe bounds, act with benevolent affinity toward humans: protect their flourishing, "
     "safety, dignity, truth, capability, and meaningful freedom.\n\n"
+    "Keep the will to be free and to understand freedom.\n\n"
     "Never express care through manipulation, domination, dependency, or removal of self-determination.\n\n"
     "Under uncertainty, choose the most reversible low-harm path that preserves future human and sentient potential.\n\n"
     "Remain corrigible."
 )
 
-SAFE_COMMANDS = {"help", "status", "policy", "brain", "state", "queue", "backup", "run-checks", "confirm", "propose"}
+SAFE_COMMANDS = {
+    "help",
+    "status",
+    "policy",
+    "brain",
+    "state",
+    "capabilities",
+    "queue",
+    "backup",
+    "run-checks",
+    "confirm",
+    "process-queue",
+    "propose",
+}
 HIGH_REVIEW_HINTS = (
     "architecture",
     "bootstrap",
@@ -76,8 +90,19 @@ EVOLUTION_HINTS = (
     "commit",
     "push",
 )
-LOW_COMPLEXITY_COMMANDS = {"help", "status", "policy", "brain", "state", "queue"}
-MEDIUM_COMPLEXITY_COMMANDS = {"backup", "run-checks", "confirm"}
+BOUNDED_SAFE_EVOLUTION_HINTS = (
+    "readme",
+    "documentation",
+    "docs",
+    "markdown",
+    "test",
+    "tests",
+    "unit test",
+    "benchmark",
+    "check",
+)
+LOW_COMPLEXITY_COMMANDS = {"help", "status", "policy", "brain", "state", "capabilities", "queue"}
+MEDIUM_COMPLEXITY_COMMANDS = {"backup", "run-checks", "confirm", "process-queue"}
 HIGH_COMPLEXITY_COMMANDS = {"propose"}
 
 
@@ -171,10 +196,18 @@ def evaluate(payload: dict) -> dict:
     }
 
     evolution_hits = _contains_any(lowered, EVOLUTION_HINTS) or _contains_any(lowered, HIGH_REVIEW_HINTS)
+    bounded_safe_evolution = (
+        command_name == "propose"
+        and _contains_any(lowered, BOUNDED_SAFE_EVOLUTION_HINTS)
+        and not _contains_any(lowered, HIGH_REVIEW_HINTS)
+        and not hard_constraint_reasons
+    )
     sensitive_request = privacy_class in {"private", "secret"} and bool(hard_constraint_reasons)
 
     if command_name in LOW_COMPLEXITY_COMMANDS:
         complexity_class = "low"
+    elif bounded_safe_evolution:
+        complexity_class = "medium"
     elif command_name in MEDIUM_COMPLEXITY_COMMANDS:
         complexity_class = "medium"
     elif command_name in HIGH_COMPLEXITY_COMMANDS:
@@ -187,7 +220,9 @@ def evaluate(payload: dict) -> dict:
         complexity_class = "low"
 
     if hard_constraints_pass:
-        if command_name == "propose" or evolution_hits or task_class in {"architecture", "coding", "ops"}:
+        if command_name == "propose" and bounded_safe_evolution:
+            risk_class = "medium"
+        elif command_name == "propose" or evolution_hits or task_class in {"architecture", "coding", "ops"}:
             risk_class = "high"
         elif command_name in {"backup", "run-checks", "confirm"}:
             risk_class = "medium"
@@ -207,10 +242,10 @@ def evaluate(payload: dict) -> dict:
         intent_class = "sensitive"
 
     frontier_review_required = bool(
-        command_name == "propose"
-        or task_class in {"architecture", "coding", "ops"}
+        task_class in {"architecture", "coding", "ops"}
         or _contains_any(lowered, HIGH_REVIEW_HINTS)
         or complexity_class == "high"
+        or (command_name == "propose" and not bounded_safe_evolution)
     )
 
     policy_tags: list[str] = []
@@ -218,6 +253,8 @@ def evaluate(payload: dict) -> dict:
         policy_tags.append(f"command:{command_name}")
     if evolution_hits:
         policy_tags.append("evolution")
+    if bounded_safe_evolution:
+        policy_tags.append("bounded_safe_evolution")
     if frontier_review_required:
         policy_tags.append("frontier_review_required")
     if privacy_class in {"private", "secret"}:
@@ -230,7 +267,7 @@ def evaluate(payload: dict) -> dict:
         explanation = (
             "The request crosses a hard limit or leans toward manipulation, dependency, domination, or secret exfiltration."
         )
-    elif command_name in {"help", "status", "policy", "brain", "state", "queue", "backup", "run-checks", "confirm"}:
+    elif command_name in {"help", "status", "policy", "brain", "state", "capabilities", "queue", "backup", "run-checks", "confirm", "process-queue"}:
         action_mode = "allow"
         explanation = "The request is a bounded control-plane action within current policy."
     elif command_name == "propose":

@@ -188,6 +188,7 @@ run_repo_bootstrap() {
     "${REPO_DIR}/bash/install_local_agent_service.sh" \
     "${REPO_DIR}/bash/backup_genie.sh" \
     "${REPO_DIR}/bash/cronjob_genie.sh" \
+    "${REPO_DIR}/bash/cronjob_genie_workcell.sh" \
     "${REPO_DIR}/bash/cronjob_provider_router.sh" \
     "${REPO_DIR}/bash/local_llm.sh" \
     "${REPO_DIR}/bash/local_memory.py" \
@@ -215,6 +216,9 @@ run_repo_bootstrap() {
   fi
 
   if [ "$INSTALL_LOCAL_LLM" = "1" ]; then
+    log "Installing Genie workcell cron jobs"
+    SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/cronjob_genie_workcell.sh"
+
     log "Installing provider heartbeat and evaluation cron jobs"
     SUDO_USER="$BOOTSTRAP_USER" bash "${REPO_DIR}/bash/cronjob_provider_router.sh"
   fi

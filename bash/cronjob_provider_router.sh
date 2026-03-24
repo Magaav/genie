@@ -11,11 +11,6 @@ EVALUATE_CRON_LOG="$CRON_LOG_DIR/provider-evaluate-cron.log"
 JUDGE_CRON_LOG="$CRON_LOG_DIR/provider-judge-cron.log"
 SCORECARD_CRON_LOG="$CRON_LOG_DIR/provider-scorecards-cron.log"
 DISCOVERY_CRON_LOG="$CRON_LOG_DIR/provider-discovery-cron.log"
-HEARTBEAT_CRON_MARKER="/providers/health?refresh=1"
-EVALUATE_CRON_MARKER="/providers/evaluate.*judge_mode\":\"never"
-JUDGE_CRON_MARKER="/providers/evaluate.*judge_mode\":\"targeted"
-SCORECARD_CRON_MARKER="/providers/scorecards?refresh=1"
-DISCOVERY_CRON_MARKER="/providers/discover.*provider_family\":\"all"
 HEARTBEAT_CRON_ENTRY="*/10 * * * * curl -fsS \"$GATEWAY_URL/providers/health?refresh=1\" >> $HEARTBEAT_CRON_LOG 2>&1"
 EVALUATE_CRON_ENTRY="13 */6 * * * curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"judge_mode\":\"never\"}' \"$GATEWAY_URL/providers/evaluate\" >> $EVALUATE_CRON_LOG 2>&1"
 JUDGE_CRON_ENTRY="27 4 * * * curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"judge_mode\":\"targeted\"}' \"$GATEWAY_URL/providers/evaluate\" >> $JUDGE_CRON_LOG 2>&1"
@@ -30,28 +25,33 @@ root_crontab() {
   fi
 }
 
-upsert_cron_entry() {
-  local entry="$1"
-  local marker="$2"
+filter_provider_entries() {
   local current_entries
   local filtered_entries
 
   current_entries="$(root_crontab -l 2>/dev/null || true)"
-  filtered_entries="$(printf '%s\n' "$current_entries" | grep -Fv "$marker" || true)"
+  filtered_entries="$current_entries"
 
+  filtered_entries="$(printf '%s\n' "$filtered_entries" | grep -Ev 'python3 /local/bash/provider_router\.py (heartbeat|evaluate|scorecards|discover)' || true)"
+  filtered_entries="$(printf '%s\n' "$filtered_entries" | grep -Ev '/providers/(health\\?refresh=1|evaluate|scorecards\\?refresh=1|discover)' || true)"
+  filtered_entries="$(printf '%s\n' "$filtered_entries" | grep -Ev '/provider-(heartbeat|evaluate|judge|scorecards|discovery)-cron\.log' || true)"
+  printf '%s\n' "$filtered_entries"
+}
+
+rewrite_provider_entries() {
   {
-    printf '%s\n' "$filtered_entries" | sed '/^$/d'
-    echo "$entry"
+    filter_provider_entries | sed '/^$/d'
+    echo "$HEARTBEAT_CRON_ENTRY"
+    echo "$EVALUATE_CRON_ENTRY"
+    echo "$JUDGE_CRON_ENTRY"
+    echo "$SCORECARD_CRON_ENTRY"
+    echo "$DISCOVERY_CRON_ENTRY"
   } | root_crontab -
 }
 
 main() {
   run_as_root mkdir -p "$CRON_LOG_DIR"
-  upsert_cron_entry "$HEARTBEAT_CRON_ENTRY" "$HEARTBEAT_CRON_MARKER"
-  upsert_cron_entry "$EVALUATE_CRON_ENTRY" "$EVALUATE_CRON_MARKER"
-  upsert_cron_entry "$JUDGE_CRON_ENTRY" "$JUDGE_CRON_MARKER"
-  upsert_cron_entry "$SCORECARD_CRON_ENTRY" "$SCORECARD_CRON_MARKER"
-  upsert_cron_entry "$DISCOVERY_CRON_ENTRY" "$DISCOVERY_CRON_MARKER"
+  rewrite_provider_entries
 
   echo "Installed Genie provider routing cron jobs."
   echo "Heartbeat: $HEARTBEAT_CRON_ENTRY"

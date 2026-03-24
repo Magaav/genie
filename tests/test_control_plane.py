@@ -27,6 +27,16 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(parsed["command"], "confirm")
         self.assertEqual(parsed["argument"], "proposal-000001")
 
+    def test_parse_capabilities_alias(self) -> None:
+        parsed = CONTROL.parse_control_command("/caps")
+        self.assertEqual(parsed["command"], "capabilities")
+        self.assertEqual(parsed["argument"], "")
+
+    def test_parse_process_alias(self) -> None:
+        parsed = CONTROL.parse_control_command("/process")
+        self.assertEqual(parsed["command"], "process-queue")
+        self.assertEqual(parsed["argument"], "")
+
     def test_non_command_returns_none(self) -> None:
         self.assertIsNone(CONTROL.parse_control_command("hello genie"))
 

@@ -21,6 +21,7 @@ LOCAL_LLM_ENV_FILE="${LOCAL_LLM_ENV_FILE:-$POLICY_DIR/local-llm.env}"
 GENIE_GATEWAY_ENV_FILE="${GENIE_GATEWAY_ENV_FILE:-$POLICY_DIR/genie-gateway.env}"
 PROVIDER_ROUTING_ENV_FILE="${PROVIDER_ROUTING_ENV_FILE:-$POLICY_DIR/provider-routing.env}"
 PROVIDER_REGISTRY_FILE="${PROVIDER_REGISTRY_FILE:-$POLICY_DIR/provider-registry.json}"
+CAPABILITY_REGISTRY_FILE="${GENIE_CAPABILITY_REGISTRY_FILE:-$POLICY_DIR/capability-registry.json}"
 USAGE_LEDGER_FILE="${FREEWILLER_USAGE_LEDGER_FILE:-$TELEMETRY_DIR/provider-usage.jsonl}"
 PROVIDER_HEALTH_FILE="${PROVIDER_HEALTH_FILE:-$TELEMETRY_DIR/provider-health.json}"
 PROVIDER_BENCHMARKS_FILE="${PROVIDER_BENCHMARKS_FILE:-$TELEMETRY_DIR/provider-benchmarks.json}"
@@ -33,6 +34,7 @@ GATEWAY_STATE_DIR="${GATEWAY_STATE_DIR:-$STATE_DIR/gateway}"
 PROJECTIONS_DIR="${PROJECTIONS_DIR:-$MEMORY_DIR/projections}"
 REVIEW_QUEUE_FILE="${GENIE_REVIEW_QUEUE_FILE:-$RUNTIME_DIR/review-queue.jsonl}"
 CONTROL_LOG_FILE="${GENIE_CONTROL_LOG_FILE:-$RUNTIME_DIR/control-log.jsonl}"
+WORKCELLS_DIR="${GENIE_WORKCELLS_DIR:-$RUNTIME_DIR/workcells}"
 
 if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   OWNER_USER="${FREEWILLER_OWNER:-${SUDO_USER:-ubuntu}}"
@@ -85,6 +87,10 @@ build_snapshot_dir() {
 
   if [ -f "$PROVIDER_REGISTRY_FILE" ]; then
     cp "$PROVIDER_REGISTRY_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/policy/provider-registry.json"
+  fi
+
+  if [ -f "$CAPABILITY_REGISTRY_FILE" ]; then
+    cp "$CAPABILITY_REGISTRY_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/policy/capability-registry.json"
   fi
 
   if [ -f "$ACCESS_ENV_FILE" ]; then
@@ -142,6 +148,11 @@ build_snapshot_dir() {
     fi
   fi
 
+  if [ -d "$WORKCELLS_DIR" ]; then
+    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/workcells"
+    tar --exclude='*.migrated-*' -cf - -C "$WORKCELLS_DIR" . | tar -xf - -C "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/workcells"
+  fi
+
   if [ -f "$MEMORY_DIR/entries.jsonl" ]; then
     LOCAL_LLM_DIR="$STATE_DIR" python3 "$LOCAL_MEMORY_PY" export --compact --output "$compact_memory_path" >/dev/null
   fi
@@ -154,11 +165,13 @@ build_snapshot_dir() {
   "conf_env_present": $([ -f "$CONF_ENV_FILE" ] && echo true || echo false),
   "provider_routing_present": $([ -f "$PROVIDER_ROUTING_ENV_FILE" ] && echo true || echo false),
   "provider_registry_present": $([ -f "$PROVIDER_REGISTRY_FILE" ] && echo true || echo false),
+  "capability_registry_present": $([ -f "$CAPABILITY_REGISTRY_FILE" ] && echo true || echo false),
   "memory_entries": $(wc -l < "$MEMORY_DIR/entries.jsonl" 2>/dev/null || echo 0),
   "journal_events": $(wc -l < "$MEMORY_DIR/journal.jsonl" 2>/dev/null || echo 0),
   "provider_usage_events": $(wc -l < "$USAGE_LEDGER_FILE" 2>/dev/null || echo 0),
   "review_queue_entries": $(wc -l < "$REVIEW_QUEUE_FILE" 2>/dev/null || echo 0),
   "control_log_entries": $(wc -l < "$CONTROL_LOG_FILE" 2>/dev/null || echo 0),
+  "workcell_files": $(find "$WORKCELLS_DIR" -type f 2>/dev/null | wc -l || echo 0),
   "provider_health_present": $([ -f "$PROVIDER_HEALTH_FILE" ] && echo true || echo false),
   "provider_benchmarks_present": $([ -f "$PROVIDER_BENCHMARKS_FILE" ] && echo true || echo false),
   "memory_format": "hybrid-sqlite-compact-jsonl",
@@ -298,6 +311,11 @@ restore_backup() {
     run_as_root install -m 644 "$snapshot_dir/provider-registry.json" "$PROVIDER_REGISTRY_FILE"
   fi
 
+  if [ -f "$snapshot_dir/policy/capability-registry.json" ]; then
+    run_as_root mkdir -p "$POLICY_DIR"
+    run_as_root install -m 644 "$snapshot_dir/policy/capability-registry.json" "$CAPABILITY_REGISTRY_FILE"
+  fi
+
   if [ -f "$snapshot_dir/access.env" ]; then
     run_as_root mkdir -p "$(dirname "$ACCESS_ENV_FILE")"
     run_as_root install -m 600 "$snapshot_dir/access.env" "$ACCESS_ENV_FILE"
@@ -360,6 +378,11 @@ restore_backup() {
   if [ -f "$snapshot_dir/runtime/control-log.jsonl" ]; then
     run_as_root mkdir -p "$RUNTIME_DIR"
     run_as_root install -m 644 "$snapshot_dir/runtime/control-log.jsonl" "$CONTROL_LOG_FILE"
+  fi
+
+  if [ -d "$snapshot_dir/runtime/workcells" ]; then
+    run_as_root mkdir -p "$WORKCELLS_DIR"
+    run_as_root cp -R "$snapshot_dir/runtime/workcells"/. "$WORKCELLS_DIR/"
   fi
 
   if [ -f "$compact_memory_path" ]; then

@@ -2,3 +2,4 @@
 !Dockerfile
 !app.py
 !control_plane.py
+!workcell_support.py

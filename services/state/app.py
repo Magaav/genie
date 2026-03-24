@@ -38,8 +38,14 @@ RUNTIME_POST_PATHS = {
     "/state/runtime/proposals/list": runtime_domain.list_proposals,
     "/runtime/proposals/confirm": runtime_domain.confirm_proposal,
     "/state/runtime/proposals/confirm": runtime_domain.confirm_proposal,
+    "/runtime/proposals/update": runtime_domain.update_proposal,
+    "/state/runtime/proposals/update": runtime_domain.update_proposal,
     "/runtime/control-log": runtime_domain.append_control_log,
     "/state/runtime/control-log": runtime_domain.append_control_log,
+}
+POLICY_POST_PATHS = {
+    "/policy/capabilities/upsert": policy_domain.upsert_capability_registry,
+    "/state/policy/capabilities/upsert": policy_domain.upsert_capability_registry,
 }
 
 
@@ -121,6 +127,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, policy_domain.summary())
                 return
 
+            if parsed.path in {"/policy/capabilities", "/state/policy/capabilities"}:
+                self._write_json(HTTPStatus.OK, policy_domain.load_capability_registry())
+                return
+
             if parsed.path in {"/gateway/summary", "/state/gateway/summary"}:
                 self._write_json(HTTPStatus.OK, gateway_domain.summary())
                 return
@@ -163,6 +173,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, handler(payload))
                 return
             handler = RUNTIME_POST_PATHS.get(self.path)
+            if handler is not None:
+                self._write_json(HTTPStatus.OK, handler(payload))
+                return
+            handler = POLICY_POST_PATHS.get(self.path)
             if handler is not None:
                 self._write_json(HTTPStatus.OK, handler(payload))
                 return

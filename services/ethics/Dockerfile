@@ -10,6 +10,7 @@ RUN apt-get update \
 
 COPY app.py /app/app.py
 COPY control_plane.py /app/control_plane.py
+COPY workcell_support.py /app/workcell_support.py
 
 EXPOSE 18791
 

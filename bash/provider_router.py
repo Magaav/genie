@@ -1929,6 +1929,7 @@ def choose_provider(
     privacy_class: str = "",
     complexity_class: str = "",
     provider_override: str = "",
+    frontier_allowed: bool = True,
     _preloaded_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     config = _preloaded_config or load_router_config()
@@ -1938,7 +1939,7 @@ def choose_provider(
     resolved_complexity_class = normalize_complexity_class(complexity_class) or (
         "high" if resolved_task_class in FRONTIER_ONLY_TASKS else "medium"
     )
-    frontier_provider = providers.get("frontier_gateway")
+    frontier_provider = providers.get("frontier_gateway") if frontier_allowed else None
     frontier_is_available = frontier_available(frontier_provider, config)
 
     if provider_override:
@@ -1970,6 +1971,7 @@ def choose_provider(
             "selection_confidence": 1.0,
             "score_gap_to_next": 1.0,
             "frontier_available": frontier_is_available,
+            "frontier_allowed": frontier_allowed,
             "frontier_exhausted_fallback": False,
             "escalate_on_low_confidence": False,
             "usage_ledger_file": config["usage_ledger_file"],
@@ -2061,6 +2063,7 @@ def choose_provider(
             "selection_confidence": 1.0,
             "score_gap_to_next": 1.0,
             "frontier_available": frontier_is_available,
+            "frontier_allowed": frontier_allowed,
             "frontier_exhausted_fallback": False,
             "escalate_on_low_confidence": False,
             "usage_ledger_file": config["usage_ledger_file"],
@@ -2132,6 +2135,7 @@ def choose_provider(
         "selection_confidence": selection_confidence,
         "score_gap_to_next": score_gap_to_next,
         "frontier_available": frontier_is_available,
+        "frontier_allowed": frontier_allowed,
         "frontier_exhausted_fallback": frontier_exhausted_fallback,
         "escalate_on_low_confidence": escalate_on_low_confidence,
         "usage_ledger_file": config["usage_ledger_file"],

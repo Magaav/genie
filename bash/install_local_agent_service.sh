@@ -174,9 +174,14 @@ main() {
   ensure_state_layout "$LOCAL_LLM_DIR"
   migrate_legacy_gateway_state
   ensure_local_llm_config
+  run_as_root mkdir -p /local/docs/generated /local/tests/generated
+  run_as_root touch /local/tests/generated/__init__.py
   run_as_root mkdir -p "$LOCAL_LLM_DIR" "${FREEWILLER_LOG_DIR:-$DEFAULT_LOG_DIR}"
   compose_cmd up -d --build --remove-orphans
   wait_for_health
+  bash /local/bash/cronjob_genie.sh >/dev/null
+  bash /local/bash/cronjob_genie_workcell.sh >/dev/null
+  bash /local/bash/cronjob_provider_router.sh >/dev/null
   install_aliases
 
   log "Started Genie native node stack"

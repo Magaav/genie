@@ -6,6 +6,8 @@ from __future__ import annotations
 ALIASES = {
     "constitution": "policy",
     "review": "queue",
+    "caps": "capabilities",
+    "process": "process-queue",
 }
 
 HELP_TEXT = """Genie control plane:
@@ -14,14 +16,17 @@ HELP_TEXT = """Genie control plane:
 /policy
 /brain
 /state
+/capabilities
 /backup
 /run-checks
 /propose <change request>
 /queue
 /confirm <proposal-id>
+/process-queue
 
 Safe commands run directly.
-High-impact evolution requests become proposals and are kept reviewable."""
+High-impact evolution requests become proposals and are kept reviewable.
+Confirmed low-risk proposals can be processed by the bounded workcell path."""
 
 
 def parse_control_command(text: str) -> dict | None:

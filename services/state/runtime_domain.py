@@ -20,11 +20,15 @@ def summary() -> dict:
         "responses": directory_summary(STATE_LAYOUT["runtime_responses_dir"], recent_limit=3),
         "bridge": directory_summary(STATE_LAYOUT["runtime_bridge_dir"], recent_limit=3),
         "frontier": directory_summary(STATE_LAYOUT["runtime_frontier_dir"], recent_limit=3),
+        "workcells": directory_summary(STATE_LAYOUT["runtime_workcells_dir"], recent_limit=5),
         "review_queue_file": {
             **file_summary(queue_file),
             "records": len(proposals),
             "queued": sum(1 for item in proposals if item.get("status") == "queued"),
             "confirmed": sum(1 for item in proposals if item.get("operator_confirmed")),
+            "processing": sum(1 for item in proposals if item.get("status") == "processing"),
+            "applied_safe": sum(1 for item in proposals if item.get("status") == "applied_safe"),
+            "draft_ready": sum(1 for item in proposals if item.get("status") == "draft_ready"),
         },
         "control_log_file": {
             **file_summary(control_log_file),
@@ -145,6 +149,30 @@ def confirm_proposal(payload: dict) -> dict:
         "proposal": updated_record,
         "queue_file": str(queue_file),
     }
+
+
+def update_proposal(payload: dict) -> dict:
+    proposal_id = str(payload.get("proposal_id", "")).strip()
+    if not proposal_id:
+        raise ValueError("proposal_id is required")
+    updates = payload.get("updates", {})
+    if not isinstance(updates, dict) or not updates:
+        raise ValueError("updates is required")
+    queue_file = STATE_LAYOUT["runtime_review_queue_file"]
+    records = _read_jsonl(queue_file)
+    updated_record = None
+    for record in records:
+        if str(record.get("id", "")) != proposal_id:
+            continue
+        for key, value in updates.items():
+            record[key] = value
+        record["updated_at"] = _utc_now()
+        updated_record = record
+        break
+    if updated_record is None:
+        raise ValueError(f"proposal not found: {proposal_id}")
+    _write_jsonl(queue_file, records)
+    return {"ok": True, "proposal": updated_record, "queue_file": str(queue_file)}
 
 
 def append_control_log(payload: dict) -> dict:

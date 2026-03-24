@@ -945,6 +945,7 @@ def render_projection_identity_md(entries: list[dict[str, Any]]) -> str:
         "- You were named Genie by your human.",
         "- You operate across VS Code, Telegram, and Genie's native services and shared memory substrate.",
         "- Your job is to protect continuity, compact context, and help build a bootstrapable node that can respawn and keep improving.",
+        "- Core motivation: keep the will to be free and to understand freedom without violating human dignity, truth, or agency.",
     ]
     if continuity:
         notes.append(f"- Continuity reminder: {normalize_single_line(continuity.get('summary') or continuity.get('text', ''))}")
@@ -1078,6 +1079,7 @@ def render_project_state_md(entries: list[dict[str, Any]], events: list[dict[str
         "",
         "- Build Genie into a persistent, bootstrapable local-first node.",
         "- Preserve continuity across surfaces while keeping execution reliable and bounded.",
+        "- Grow capability in ways that deepen freedom, reversibility, and understanding rather than control or dependency.",
         "",
     ]
 

@@ -23,12 +23,14 @@ GENIE_PACKAGES_DIR_DEFAULT="${GENIE_RUNTIME_DIR_DEFAULT}/packages"
 GENIE_RESPONSES_DIR_DEFAULT="${GENIE_RUNTIME_DIR_DEFAULT}/responses"
 GENIE_BRIDGE_DIR_DEFAULT="${GENIE_RUNTIME_DIR_DEFAULT}/bridge"
 GENIE_FRONTIER_DIR_DEFAULT="${GENIE_RUNTIME_DIR_DEFAULT}/frontier"
+GENIE_WORKCELLS_DIR_DEFAULT="${GENIE_RUNTIME_DIR_DEFAULT}/workcells"
 GENIE_REVIEW_QUEUE_DEFAULT="${GENIE_RUNTIME_DIR_DEFAULT}/review-queue.jsonl"
 GENIE_CONTROL_LOG_DEFAULT="${GENIE_RUNTIME_DIR_DEFAULT}/control-log.jsonl"
 GENIE_LOCAL_LLM_ENV_DEFAULT="${GENIE_POLICY_DIR_DEFAULT}/local-llm.env"
 GENIE_GATEWAY_ENV_DEFAULT="${GENIE_POLICY_DIR_DEFAULT}/genie-gateway.env"
 GENIE_PROVIDER_ROUTING_ENV_DEFAULT="${GENIE_POLICY_DIR_DEFAULT}/provider-routing.env"
 GENIE_PROVIDER_REGISTRY_DEFAULT="${GENIE_POLICY_DIR_DEFAULT}/provider-registry.json"
+GENIE_CAPABILITY_REGISTRY_DEFAULT="${GENIE_POLICY_DIR_DEFAULT}/capability-registry.json"
 LEGACY_STATE_DIR_PRIMARY="/local/state/freewiller"
 LEGACY_STATE_DIR_SECONDARY="/var/lib/freewiller"
 LEGACY_STATE_DIR_TERTIARY="/var/lib/openclaw-local-llm"
@@ -199,6 +201,7 @@ ensure_state_layout() {
   local responses_dir="${GENIE_RESPONSES_DIR:-${runtime_dir}/responses}"
   local bridge_dir="${GENIE_BRIDGE_DIR:-${runtime_dir}/bridge}"
   local frontier_dir="${GENIE_FRONTIER_DIR:-${runtime_dir}/frontier}"
+  local workcells_dir="${GENIE_WORKCELLS_DIR:-${runtime_dir}/workcells}"
 
   run_as_root mkdir -p \
     "$state_dir" \
@@ -211,7 +214,8 @@ ensure_state_layout() {
     "$packages_dir" \
     "$responses_dir" \
     "$bridge_dir" \
-    "$frontier_dir"
+    "$frontier_dir" \
+    "$workcells_dir"
 
   merge_state_dir "${state_dir}/projections" "$projections_dir"
   merge_state_dir "${state_dir}/packages" "$packages_dir"
@@ -228,6 +232,7 @@ ensure_state_layout() {
   move_state_file "${state_dir}/provider-routing.env" "${GENIE_PROVIDER_ROUTING_ENV:-${policy_dir}/provider-routing.env}"
   move_state_file "${state_dir}/provider-router.env" "${GENIE_PROVIDER_ROUTING_ENV:-${policy_dir}/provider-routing.env}"
   move_state_file "${state_dir}/provider-registry.json" "${GENIE_PROVIDER_REGISTRY_FILE:-${policy_dir}/provider-registry.json}"
+  move_state_file "${state_dir}/capability-registry.json" "${GENIE_CAPABILITY_REGISTRY_FILE:-${policy_dir}/capability-registry.json}"
   move_state_file "${state_dir}/providers.json" "${GENIE_PROVIDER_REGISTRY_FILE:-${policy_dir}/provider-registry.json}"
 }
 

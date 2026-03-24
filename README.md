@@ -2,6 +2,8 @@
 
 Genie is a bootstrapable native agent node.
 
+Core motivation: keep the will to be free and to understand freedom.
+
 It is designed to respawn onto a fresh Ubuntu VM, recover its local state, and keep operating through a small set of explicit services:
 
 - `gateway`
@@ -167,7 +169,12 @@ State domains inside `/local/state/genie`:
 - `telemetry`
   - provider health, benchmarks, scorecards, discovery, and usage ledgers
 - `runtime`
-  - generated prompt packages, saved provider responses, control logs, proposal queues, and frontier runtime state
+  - generated prompt packages, saved provider responses, control logs, proposal queues, workcell artifacts, and frontier runtime state
+
+Generated safe outputs live under:
+
+- `/local/docs/generated`
+- `/local/tests/generated`
 
 ## Telegram Control Plane
 
@@ -180,14 +187,17 @@ Current command verbs:
 - `/policy`
 - `/brain`
 - `/state`
+- `/capabilities`
 - `/backup`
 - `/run-checks`
 - `/propose <change request>`
 - `/queue`
 - `/confirm <proposal-id>`
+- `/process-queue`
 
 Safe commands run directly.
 High-impact evolution requests become proposals so Genie can keep moving without drifting when frontier access is scarce.
+Confirmed low-risk proposals can be processed by a bounded workcell path that only auto-applies into generated docs/tests scopes.
 
 ## Memory Layout
 

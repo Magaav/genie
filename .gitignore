@@ -7,5 +7,9 @@
 /docker/conf.env
 /docker/.env
 .env
+/docs/generated/*
+!/docs/generated/.gitkeep
+/tests/generated/*
+!/tests/generated/__init__.py
 __pycache__/
 free_access.sh

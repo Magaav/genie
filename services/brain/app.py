@@ -17,6 +17,45 @@ HOST = os.environ.get("GENIE_BRAIN_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GENIE_BRAIN_PORT", "18793"))
 
 
+def normalize_workcell_scope(value: object) -> str:
+    scope = str(value or "").strip().lower()
+    if scope in {"docs", "tests", "draft_only"}:
+        return scope
+    return "draft_only"
+
+
+def workcell_plan(scope: str, complexity_class: str = "") -> dict:
+    resolved_scope = normalize_workcell_scope(scope)
+    resolved_complexity = provider_router.normalize_complexity_class(complexity_class) or "medium"
+    draft_task_class = {
+        "docs": "chat",
+        "tests": "chat",
+        "draft_only": "reflect",
+    }[resolved_scope]
+    critique_task_class = "reflect"
+    roles = [
+        {
+            "name": "draft",
+            "task_class": draft_task_class,
+            "complexity_class": resolved_complexity,
+            "frontier_allowed": False,
+            "privacy_class": "internal",
+        },
+        {
+            "name": "critique",
+            "task_class": critique_task_class,
+            "complexity_class": resolved_complexity,
+            "frontier_allowed": False,
+            "privacy_class": "internal",
+        },
+    ]
+    return {
+        "scope": resolved_scope,
+        "complexity_class": resolved_complexity,
+        "roles": roles,
+    }
+
+
 def coerce_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
@@ -82,6 +121,7 @@ class Handler(BaseHTTPRequestHandler):
                     privacy_class=privacy_class,
                     complexity_class=query.get("complexity_class", [""])[0],
                     provider_override=provider,
+                    frontier_allowed=coerce_bool(query.get("frontier_allowed", ["1"])[0]),
                 )
                 self._write_json(HTTPStatus.OK, ranking)
                 return
@@ -128,6 +168,15 @@ class Handler(BaseHTTPRequestHandler):
                     privacy_class=str(payload.get("privacy_class", "")),
                     complexity_class=str(payload.get("complexity_class", "")),
                     provider_override=str(payload.get("provider", "")),
+                    frontier_allowed=coerce_bool(payload.get("frontier_allowed", True)),
+                )
+                self._write_json(HTTPStatus.OK, result)
+                return
+
+            if self.path == "/workcell/plan":
+                result = workcell_plan(
+                    str(payload.get("scope", "")),
+                    complexity_class=str(payload.get("complexity_class", "")),
                 )
                 self._write_json(HTTPStatus.OK, result)
                 return

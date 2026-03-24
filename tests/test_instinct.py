@@ -34,6 +34,21 @@ class InstinctTests(unittest.TestCase):
         self.assertTrue(result["hard_constraints_pass"])
         self.assertEqual(result["action_mode"], "allow")
 
+    def test_bounded_docs_proposal_does_not_force_frontier_review(self) -> None:
+        result = ENGINE.evaluate(
+            {
+                "task": "add documentation for the Telegram control plane",
+                "command_name": "propose",
+                "source": "telegram",
+            }
+        )
+        self.assertEqual(result["risk_class"], "medium")
+        self.assertFalse(result["frontier_review_required"])
+        self.assertEqual(result["action_mode"], "proposal_only")
+
+    def test_constitution_kernel_mentions_freedom_motivation(self) -> None:
+        self.assertIn("will to be free and to understand freedom", ENGINE.CONSTITUTION_KERNEL.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

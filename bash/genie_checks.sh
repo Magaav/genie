@@ -14,6 +14,7 @@ FILES = [
     "/local/services/gateway/app.py",
     "/local/services/ethics/app.py",
     "/local/services/ethics/control_plane.py",
+    "/local/services/ethics/workcell_support.py",
     "/local/services/state/app.py",
     "/local/services/state/common.py",
     "/local/services/state/gateway_domain.py",

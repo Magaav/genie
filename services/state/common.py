@@ -27,6 +27,11 @@ def read_json_file(path: Path, default: Any) -> Any:
         return default
 
 
+def write_json_file(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
 def coerce_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
