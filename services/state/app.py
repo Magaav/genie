@@ -4,7 +4,7 @@ import json
 import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import memory_domain
 import gateway_domain
@@ -30,6 +30,16 @@ MEMORY_POST_PATHS = {
     "/sync-projections": lambda payload: memory_domain.sync_projections(),
     "/memory/sync-projections": lambda payload: memory_domain.sync_projections(),
     "/state/sync-projections": lambda payload: memory_domain.sync_projections(),
+}
+RUNTIME_POST_PATHS = {
+    "/runtime/proposals/create": runtime_domain.create_proposal,
+    "/state/runtime/proposals/create": runtime_domain.create_proposal,
+    "/runtime/proposals/list": runtime_domain.list_proposals,
+    "/state/runtime/proposals/list": runtime_domain.list_proposals,
+    "/runtime/proposals/confirm": runtime_domain.confirm_proposal,
+    "/state/runtime/proposals/confirm": runtime_domain.confirm_proposal,
+    "/runtime/control-log": runtime_domain.append_control_log,
+    "/state/runtime/control-log": runtime_domain.append_control_log,
 }
 
 
@@ -82,6 +92,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlsplit(self.path)
+        query = parse_qs(parsed.query)
         try:
             if parsed.path == "/health":
                 self._write_json(
@@ -121,6 +132,18 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path in {"/runtime/summary", "/state/runtime/summary"}:
                 self._write_json(HTTPStatus.OK, runtime_domain.summary())
                 return
+
+            if parsed.path in {"/runtime/proposals", "/state/runtime/proposals"}:
+                self._write_json(
+                    HTTPStatus.OK,
+                    runtime_domain.list_proposals(
+                        {
+                            "limit": query.get("limit", ["10"])[0],
+                            "status": query.get("status", [""])[0],
+                        }
+                    ),
+                )
+                return
         except Exception as exc:
             self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return
@@ -136,6 +159,10 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             handler = MEMORY_POST_PATHS.get(self.path)
+            if handler is not None:
+                self._write_json(HTTPStatus.OK, handler(payload))
+                return
+            handler = RUNTIME_POST_PATHS.get(self.path)
             if handler is not None:
                 self._write_json(HTTPStatus.OK, handler(payload))
                 return

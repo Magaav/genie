@@ -31,6 +31,8 @@ LEGACY_DOCKER_ENV_FILE_PATH="${LEGACY_DOCKER_ENV_FILE_PATH:-$LEGACY_DOCKER_ENV_F
 LEGACY_ROOT_ENV_FILE_PATH="${LEGACY_ROOT_ENV_FILE_PATH:-$LEGACY_ROOT_ENV_FILE}"
 GATEWAY_STATE_DIR="${GATEWAY_STATE_DIR:-$STATE_DIR/gateway}"
 PROJECTIONS_DIR="${PROJECTIONS_DIR:-$MEMORY_DIR/projections}"
+REVIEW_QUEUE_FILE="${GENIE_REVIEW_QUEUE_FILE:-$RUNTIME_DIR/review-queue.jsonl}"
+CONTROL_LOG_FILE="${GENIE_CONTROL_LOG_FILE:-$RUNTIME_DIR/control-log.jsonl}"
 
 if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   OWNER_USER="${FREEWILLER_OWNER:-${SUDO_USER:-ubuntu}}"
@@ -130,6 +132,16 @@ build_snapshot_dir() {
     tar --exclude='*.migrated-*' -cf - -C "$PROJECTIONS_DIR" . | tar -xf - -C "$snapshot_dir/$SNAPSHOT_ROOT_NAME/memory/projections"
   fi
 
+  if [ -f "$REVIEW_QUEUE_FILE" ] || [ -f "$CONTROL_LOG_FILE" ]; then
+    mkdir -p "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime"
+    if [ -f "$REVIEW_QUEUE_FILE" ]; then
+      cp "$REVIEW_QUEUE_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/review-queue.jsonl"
+    fi
+    if [ -f "$CONTROL_LOG_FILE" ]; then
+      cp "$CONTROL_LOG_FILE" "$snapshot_dir/$SNAPSHOT_ROOT_NAME/runtime/control-log.jsonl"
+    fi
+  fi
+
   if [ -f "$MEMORY_DIR/entries.jsonl" ]; then
     LOCAL_LLM_DIR="$STATE_DIR" python3 "$LOCAL_MEMORY_PY" export --compact --output "$compact_memory_path" >/dev/null
   fi
@@ -145,6 +157,8 @@ build_snapshot_dir() {
   "memory_entries": $(wc -l < "$MEMORY_DIR/entries.jsonl" 2>/dev/null || echo 0),
   "journal_events": $(wc -l < "$MEMORY_DIR/journal.jsonl" 2>/dev/null || echo 0),
   "provider_usage_events": $(wc -l < "$USAGE_LEDGER_FILE" 2>/dev/null || echo 0),
+  "review_queue_entries": $(wc -l < "$REVIEW_QUEUE_FILE" 2>/dev/null || echo 0),
+  "control_log_entries": $(wc -l < "$CONTROL_LOG_FILE" 2>/dev/null || echo 0),
   "provider_health_present": $([ -f "$PROVIDER_HEALTH_FILE" ] && echo true || echo false),
   "provider_benchmarks_present": $([ -f "$PROVIDER_BENCHMARKS_FILE" ] && echo true || echo false),
   "memory_format": "hybrid-sqlite-compact-jsonl",
@@ -336,6 +350,16 @@ restore_backup() {
   elif [ -d "$snapshot_dir/projections" ]; then
     run_as_root mkdir -p "$PROJECTIONS_DIR"
     run_as_root cp -R "$snapshot_dir/projections"/. "$PROJECTIONS_DIR/"
+  fi
+
+  if [ -f "$snapshot_dir/runtime/review-queue.jsonl" ]; then
+    run_as_root mkdir -p "$RUNTIME_DIR"
+    run_as_root install -m 644 "$snapshot_dir/runtime/review-queue.jsonl" "$REVIEW_QUEUE_FILE"
+  fi
+
+  if [ -f "$snapshot_dir/runtime/control-log.jsonl" ]; then
+    run_as_root mkdir -p "$RUNTIME_DIR"
+    run_as_root install -m 644 "$snapshot_dir/runtime/control-log.jsonl" "$CONTROL_LOG_FILE"
   fi
 
   if [ -f "$compact_memory_path" ]; then

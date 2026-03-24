@@ -218,6 +218,9 @@ def reply_to_telegram_message(message: dict) -> None:
                 "task_class": "chat",
                 "privacy_class": "private",
                 "source": "telegram",
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "source_id": message_id,
             },
             timeout=300,
         )

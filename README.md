@@ -6,6 +6,7 @@ It is designed to respawn onto a fresh Ubuntu VM, recover its local state, and k
 
 - `gateway`
 - `ethics`
+- `instinct`
 - `state`
 - `brain`
 
@@ -44,6 +45,7 @@ Per-service build contexts live under:
 
 - `/local/services/gateway`
 - `/local/services/ethics`
+- `/local/services/instinct`
 - `/local/services/state`
 - `/local/services/brain`
 
@@ -55,7 +57,7 @@ Genie uses a simple control model:
   - the human operator for now
   - source of mission, permission, and long-horizon direction
 - `soul`
-  - the `ethics` layer plus native projections
+  - the `ethics` and `instinct` layers plus native projections
   - where intent, memory, and boundaries converge
 - `body`
   - the running machinery
@@ -89,6 +91,18 @@ It owns:
 - policy-aware execution mediation
 - calling `state` for context
 - calling `brain` for provider selection and remote execution
+
+### `instinct`
+
+The constitutional governor.
+
+It owns:
+
+- hard constraint checks
+- human-affinity evaluation
+- risk and complexity classification
+- proposal-only gating for high-impact evolution work
+- bounded Telegram control-plane policy
 
 ### `state`
 
@@ -137,6 +151,11 @@ The runtime env is split into:
 
 Backups include both files, so secrets and runtime configuration can respawn with the node.
 
+Tracked governance docs:
+
+- `/local/CONSTITUTION.md`
+- [`docs/genie_human_affinity.md`](docs/genie_human_affinity.md)
+
 State domains inside `/local/state/genie`:
 
 - `memory`
@@ -148,7 +167,27 @@ State domains inside `/local/state/genie`:
 - `telemetry`
   - provider health, benchmarks, scorecards, discovery, and usage ledgers
 - `runtime`
-  - generated prompt packages, saved provider responses, bridge queues, and frontier sidecar runtime state
+  - generated prompt packages, saved provider responses, control logs, proposal queues, and frontier runtime state
+
+## Telegram Control Plane
+
+Telegram is now intended to be a bounded control surface, not raw prompt-to-shell.
+
+Current command verbs:
+
+- `/help`
+- `/status`
+- `/policy`
+- `/brain`
+- `/state`
+- `/backup`
+- `/run-checks`
+- `/propose <change request>`
+- `/queue`
+- `/confirm <proposal-id>`
+
+Safe commands run directly.
+High-impact evolution requests become proposals so Genie can keep moving without drifting when frontier access is scarce.
 
 ## Memory Layout
 

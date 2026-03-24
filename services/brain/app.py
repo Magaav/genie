@@ -80,6 +80,7 @@ class Handler(BaseHTTPRequestHandler):
                     task or task_class or "chat",
                     task_class=task_class,
                     privacy_class=privacy_class,
+                    complexity_class=query.get("complexity_class", [""])[0],
                     provider_override=provider,
                 )
                 self._write_json(HTTPStatus.OK, ranking)
@@ -125,6 +126,7 @@ class Handler(BaseHTTPRequestHandler):
                     task,
                     task_class=str(payload.get("task_class", "")),
                     privacy_class=str(payload.get("privacy_class", "")),
+                    complexity_class=str(payload.get("complexity_class", "")),
                     provider_override=str(payload.get("provider", "")),
                 )
                 self._write_json(HTTPStatus.OK, result)

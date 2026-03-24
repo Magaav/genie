@@ -54,7 +54,7 @@ The soul is the convergence layer where:
 - boundaries are enforced
 - action is mediated
 
-In Genie v1, the soul is centered on the `ethics` service plus the native projection files:
+In Genie v1, the soul is centered on the `ethics` and `instinct` services plus the native projection files:
 
 - `IDENTITY.md`
 - `USER.md`
@@ -112,6 +112,15 @@ Role:
 - policy-aware execution mediation
 - working-state assembly
 - decides how to combine state-memory and brain outputs
+
+### `instinct`
+
+Role:
+
+- constitutional governor
+- human-affinity and hard-limit evaluator
+- risk and complexity classifier
+- turns high-impact evolution work into bounded proposals instead of silent drift
 
 ### `state`
 

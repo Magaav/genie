@@ -371,6 +371,13 @@ def normalize_privacy_class(value: str) -> str:
     return ""
 
 
+def normalize_complexity_class(value: str) -> str:
+    candidate = value.strip().lower()
+    if candidate in {"low", "medium", "high"}:
+        return candidate
+    return ""
+
+
 def normalize_trust_tier(value: str) -> str:
     candidate = value.strip().lower()
     if candidate in TRUST_TIERS:
@@ -1552,11 +1559,12 @@ def benchmark_quality_for(provider_id: str, task_class: str, benchmark_store: di
     return DEFAULT_BENCHMARK_QUALITY.get(trust_tier, 0.5)
 
 
-def task_fit_hint(provider: dict[str, Any], task_class: str) -> float:
+def task_fit_hint(provider: dict[str, Any], task_class: str, complexity_class: str = "") -> float:
     interactive = bool(provider.get("interactive", True))
     latency_tier = str(provider.get("latency_tier", "normal"))
     strength_tier = str(provider.get("strength_tier", "standard"))
     trust_tier = str(provider.get("trust_tier", "trusted_external"))
+    resolved_complexity = normalize_complexity_class(complexity_class) or "medium"
 
     if trust_tier == "frontier":
         return 0.95
@@ -1570,6 +1578,18 @@ def task_fit_hint(provider: dict[str, Any], task_class: str) -> float:
             score -= 0.10
         if strength_tier in {"strong", "powerful"}:
             score += 0.05
+        if resolved_complexity == "high":
+            if strength_tier == "powerful":
+                score += 0.12
+            elif strength_tier == "strong":
+                score += 0.08
+            elif strength_tier == "standard":
+                score -= 0.08
+        elif resolved_complexity == "low":
+            if strength_tier == "standard":
+                score += 0.05
+            if latency_tier == "slow":
+                score -= 0.05
         return max(0.1, min(1.0, score))
     if task_class in SLOW_POWERFUL_TASKS:
         score = 0.45
@@ -1581,6 +1601,10 @@ def task_fit_hint(provider: dict[str, Any], task_class: str) -> float:
             score += 0.12
         elif latency_tier == "normal":
             score += 0.06
+        if resolved_complexity == "high" and strength_tier == "powerful":
+            score += 0.08
+        elif resolved_complexity == "low" and latency_tier == "slow":
+            score -= 0.06
         return max(0.1, min(1.0, score))
     return 0.6
 
@@ -1617,10 +1641,15 @@ def task_metrics_for(provider_id: str, task_class: str, scorecard_store: dict[st
     return {}
 
 
-def benchmark_quality_for_task(provider: dict[str, Any], task_class: str, benchmark_store: dict[str, Any]) -> float:
+def benchmark_quality_for_task(
+    provider: dict[str, Any],
+    task_class: str,
+    benchmark_store: dict[str, Any],
+    complexity_class: str = "",
+) -> float:
     trust_tier = provider.get("trust_tier", "trusted_external")
     base_quality = benchmark_quality_for(provider["id"], task_class, benchmark_store, trust_tier)
-    fit_hint = task_fit_hint(provider, task_class)
+    fit_hint = task_fit_hint(provider, task_class, complexity_class)
     return round(max(0.0, min(1.0, (base_quality * 0.7) + (fit_hint * 0.3))), 4)
 
 
@@ -1848,10 +1877,11 @@ def build_score(
     task_class: str,
     benchmark_store: dict[str, Any],
     scorecard_store: dict[str, Any],
+    complexity_class: str = "",
 ) -> tuple[float, dict[str, float]]:
     trust_tier = provider.get("trust_tier", "trusted_external")
     task_metrics = task_metrics_for(provider["id"], task_class, scorecard_store)
-    benchmark_quality = benchmark_quality_for_task(provider, task_class, benchmark_store)
+    benchmark_quality = benchmark_quality_for_task(provider, task_class, benchmark_store, complexity_class)
     recent_success_rate = task_metrics.get("success_rate")
     if not isinstance(recent_success_rate, (int, float)):
         recent_success_rate = success_rate_for(provider.get("health", {}), trust_tier)
@@ -1897,6 +1927,7 @@ def choose_provider(
     *,
     task_class: str = "",
     privacy_class: str = "",
+    complexity_class: str = "",
     provider_override: str = "",
     _preloaded_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -1904,6 +1935,9 @@ def choose_provider(
     providers = config["providers"]
     resolved_task_class = normalize_task_class(task_class) or infer_task_class(task)
     resolved_privacy_class = normalize_privacy_class(privacy_class) or infer_privacy_class(task, config["default_privacy"])
+    resolved_complexity_class = normalize_complexity_class(complexity_class) or (
+        "high" if resolved_task_class in FRONTIER_ONLY_TASKS else "medium"
+    )
     frontier_provider = providers.get("frontier_gateway")
     frontier_is_available = frontier_available(frontier_provider, config)
 
@@ -1915,7 +1949,13 @@ def choose_provider(
         eligible, reason = provider_should_be_eligible(selected, resolved_task_class, resolved_privacy_class)
         if not eligible:
             raise RuntimeError(f"Provider {override_id} is not eligible: {reason}")
-        score, components = build_score(selected, resolved_task_class, config["benchmark_store"], config["scorecard_store"])
+        score, components = build_score(
+            selected,
+            resolved_task_class,
+            config["benchmark_store"],
+            config["scorecard_store"],
+            resolved_complexity_class,
+        )
         selected = {**selected, "score": score, "score_components": components}
         ranked_providers = [provider_public_view(selected, include_score_components=True)]
         reason_text = "explicit provider override"
@@ -1923,6 +1963,7 @@ def choose_provider(
             "policy_version": config["policy_version"],
             "task_class": resolved_task_class,
             "privacy_class": resolved_privacy_class,
+            "complexity_class": resolved_complexity_class,
             "selected_provider": ranked_providers[0],
             "ranked_providers": ranked_providers,
             "reason": reason_text,
@@ -1964,7 +2005,13 @@ def choose_provider(
                 health_state = provider.get("health", {}).get("state", "healthy")
                 if health_state not in {"disabled", "auth_error"} and not provider_in_cooldown(provider.get("health", {})):
                     fallback_task_class = "reflect" if resolved_task_class in {"architecture", "coding", "ops"} else resolved_task_class
-                    score, components = build_score(provider, fallback_task_class, config["benchmark_store"], config["scorecard_store"])
+                    score, components = build_score(
+                        provider,
+                        fallback_task_class,
+                        config["benchmark_store"],
+                        config["scorecard_store"],
+                        resolved_complexity_class,
+                    )
                     frontier_exhausted_candidates.append(
                         {
                             **provider,
@@ -1977,7 +2024,13 @@ def choose_provider(
             skipped.append({"id": provider["id"], "reason": reason})
             continue
 
-        score, components = build_score(provider, resolved_task_class, config["benchmark_store"], config["scorecard_store"])
+        score, components = build_score(
+            provider,
+            resolved_task_class,
+            config["benchmark_store"],
+            config["scorecard_store"],
+            resolved_complexity_class,
+        )
         non_frontier_candidates.append({**provider, "score": score, "score_components": components})
 
     non_frontier_candidates.sort(key=lambda item: (item["score"], item["id"]), reverse=True)
@@ -1988,13 +2041,20 @@ def choose_provider(
             raise RuntimeError("Frontier gateway is required for private/secret tasks")
         if not frontier_is_available:
             raise RuntimeError("Frontier gateway is unavailable for private/secret tasks")
-        frontier_score, frontier_components = build_score(frontier_provider, resolved_task_class, config["benchmark_store"], config["scorecard_store"])
+        frontier_score, frontier_components = build_score(
+            frontier_provider,
+            resolved_task_class,
+            config["benchmark_store"],
+            config["scorecard_store"],
+            resolved_complexity_class,
+        )
         ranked_resolved = [{**frontier_provider, "score": frontier_score, "score_components": frontier_components}]
         reason_text = f"{resolved_privacy_class} data stays on the frontier lane"
         return {
             "policy_version": config["policy_version"],
             "task_class": resolved_task_class,
             "privacy_class": resolved_privacy_class,
+            "complexity_class": resolved_complexity_class,
             "selected_provider": provider_public_view(ranked_resolved[0], include_score_components=True),
             "ranked_providers": [provider_public_view(item, include_score_components=True) for item in ranked_resolved],
             "reason": reason_text,
@@ -2011,7 +2071,13 @@ def choose_provider(
 
     frontier_candidate: dict[str, Any] | None = None
     if frontier_provider and frontier_provider.get("configured", False):
-        frontier_score, frontier_components = build_score(frontier_provider, resolved_task_class, config["benchmark_store"], config["scorecard_store"])
+        frontier_score, frontier_components = build_score(
+            frontier_provider,
+            resolved_task_class,
+            config["benchmark_store"],
+            config["scorecard_store"],
+            resolved_complexity_class,
+        )
         frontier_candidate = {**frontier_provider, "score": frontier_score, "score_components": frontier_components}
 
     if resolved_task_class in FRONTIER_ONLY_TASKS:
@@ -2059,6 +2125,7 @@ def choose_provider(
         "policy_version": config["policy_version"],
         "task_class": resolved_task_class,
         "privacy_class": resolved_privacy_class,
+        "complexity_class": resolved_complexity_class,
         "selected_provider": provider_public_view(selected_provider, include_score_components=True),
         "ranked_providers": [provider_public_view(item, include_score_components=True) for item in ranked_resolved],
         "reason": reason_text,

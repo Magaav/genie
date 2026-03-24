@@ -53,6 +53,8 @@ def build_layout(state_dir: Path | None = None) -> dict[str, Path]:
         "runtime_responses_dir": runtime_dir / "responses",
         "runtime_bridge_dir": runtime_dir / "bridge",
         "runtime_frontier_dir": runtime_dir / "frontier",
+        "runtime_review_queue_file": runtime_dir / "review-queue.jsonl",
+        "runtime_control_log_file": runtime_dir / "control-log.jsonl",
     }
 
 

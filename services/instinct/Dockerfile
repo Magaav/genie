@@ -9,8 +9,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY app.py /app/app.py
-COPY control_plane.py /app/control_plane.py
+COPY engine.py /app/engine.py
 
-EXPOSE 18791
+EXPOSE 18794
 
 CMD ["python3", "/app/app.py"]

@@ -164,7 +164,7 @@ install_aliases() {
   echo "alias genie-up='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} up -d --build --remove-orphans'" >> "$bashrc_file"
 
   sed -i '/alias genie-logs=/d' "$bashrc_file" 2>/dev/null || true
-  echo "alias genie-logs='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} logs -f gateway ethics state brain'" >> "$bashrc_file"
+  echo "alias genie-logs='docker compose --env-file ${CONF_ENV_FILE} --env-file ${ACCESS_ENV_FILE} -f ${COMPOSE_FILE} logs -f gateway ethics state brain instinct'" >> "$bashrc_file"
 }
 
 main() {
